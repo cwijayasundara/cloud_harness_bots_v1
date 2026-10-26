@@ -1,0 +1,50 @@
+{
+  "name": "cloud-harness-bots",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Grok Bot outer loop + Uncle Bob's computed gates for rig repos: the deterministic commands the bots call.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "chb": "dist/bin/chb.js"
+  },
+  "scripts": {
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "chb": "node --disable-warning=ExperimentalWarning bin/chb.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "src",
+    "skills",
+    "templates",
+    "bots",
+    "playbook",
+    "README.md",
+    "ROLLOUT.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cwijayasundara/cloud_harness_bots_v1.git"
+  },
+  "keywords": [
+    "rig",
+    "claude-code",
+    "grok-bot",
+    "crap",
+    "mutation-testing",
+    "agents"
+  ]
+}

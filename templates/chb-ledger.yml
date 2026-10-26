@@ -1,0 +1,78 @@
+# The PR ledger without Grok Bot: every hour, classify open PRs (working / blocked / ready) from facts only, move the
+# chb:* labels, and keep one issue titled "chb PR ledger" up to date. Copy to .github/workflows/chb-ledger.yml
+# (chb install --ledger does it). Grok Bot's Foreman reads the same labels and issue, so both can run side by side.
+#
+# Auto-merge is OFF unless you set the repository variable CHB_AUTOMERGE to "true". It then runs in its own job, the
+# only one with write access to code, and merges only what `chb merge` calls AUTO-MERGE (small chore/refactor, every
+# condition in src/merge.ts). Note: a merge made with GITHUB_TOKEN does not trigger push workflows on the base branch.
+name: chb-ledger
+on:
+  schedule:
+    - cron: '17 6-22 * * *' # hourly 06:17–22:17 UTC; off-minute to avoid the top-of-hour queue
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chb-ledger
+  cancel-in-progress: false
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
+    outputs:
+      ready: ${{ steps.sweep.outputs.ready }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.18'
+      - name: Sweep
+        id: sweep
+        run: |
+          node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts ledger --repo "$GITHUB_REPOSITORY" --labels --json > ledger.json
+          node -e 'const l=require("./ledger.json");console.log("ready="+l.rows.filter(r=>r.status==="ready").map(r=>r.number).join(" "))' >> "$GITHUB_OUTPUT"
+          node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts ledger --repo "$GITHUB_REPOSITORY" --out ledger.md > /dev/null
+          cat ledger.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the "chb PR ledger" issue current
+        run: |
+          n=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&labels=chb:ledger&per_page=1" --jq '.[0].number // empty')
+          if [ -z "$n" ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/labels" -f name=chb:ledger -f color=5319e7 >/dev/null 2>&1 || true
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues" -f title="chb PR ledger" -F body=@ledger.md -f 'labels[]=chb:ledger' >/dev/null
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$n" -F body=@ledger.md >/dev/null
+          fi
+  automerge:
+    needs: ledger
+    if: vars.CHB_AUTOMERGE == 'true' && needs.ledger.outputs.ready != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      READY: ${{ needs.ledger.outputs.ready }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.18'
+      - name: Merge what the policy allows
+        run: |
+          for n in $READY; do
+            node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts merge "$n" --repo "$GITHUB_REPOSITORY" --go || true
+          done
