@@ -1,5 +1,7 @@
 # The bot roster
 
+No Grok Bot? The coordinator also runs on GitHub Actions (`chb install . --coordinate`, see the README): the queue, parallel sessions and pushes as you, without the bots. The bots add the morning brief, postmortems and the Friday lesson review.
+
 Six Grok Bots, each owning one result. Bots manage; Claude Code cloud sessions running rig do the coding; `chb` and rig's sensors decide what is done. You keep three things: ideas, `/rig:approve`, and merging anything that isn't a small chore or refactor.
 
 | Bot | Owns | Starts when | Routine (Europe/London) | Week |

@@ -1,0 +1,93 @@
+# The coordinator without Grok Bot: every hour, `chb coordinate` picks what may start (ready intents whose files nothing in
+# flight claims, approved changes that need a build) under the work-in-progress limit, and each pick runs as its own
+# job: a team of agents, one runner each, side by side. Copy to .github/workflows/chb-coordinate.yml (chb install
+# --coordinate does it).
+#
+# Off until you switch it on. Setup, once:
+#   1. Secret CHB_GH_TOKEN: a fine-grained token of YOUR account (cwijayasundara) for this repo only, with Contents,
+#      Pull requests, Issues and Checks read/write. Sessions push with it, so the pushes are yours and they trigger CI
+#      (a push made with GITHUB_TOKEN would not).
+#   2. Secret CLAUDE_CODE_OAUTH_TOKEN: from `claude setup-token` on your Mac.
+#   3. Variables: CHB_COORDINATE=on to start. Optional: CHB_WIP (default 4), CHB_SESSION_BUDGET_USD (default 10, per
+#      session), CHB_GIT_NAME and CHB_GIT_EMAIL (the commit identity sessions use; default yours below).
+# rig still decides: nothing starts at autonomy rung 0, builds need rung 2, and every plan stops at your approval.
+# The dispatch log (session counts, plans still being written) lives in the Actions cache between runs.
+name: chb-coordinate
+on:
+  schedule:
+    - cron: '23 7-21 * * 1-5' # hourly on weekdays, 07:23–21:23 UTC; off-minute to avoid the top-of-hour queue
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chb-coordinate
+  cancel-in-progress: false
+jobs:
+  choose:
+    if: vars.CHB_COORDINATE == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      jobs: ${{ steps.pick.outputs.jobs }}
+    env:
+      CHB_HOME: ${{ github.workspace }}/../chb-home
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.18'
+      - name: Restore the dispatch log
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../chb-home
+          key: chb-home-${{ github.run_id }}
+          restore-keys: chb-home-
+      - name: Choose what starts
+        id: pick
+        env:
+          WIP: ${{ vars.CHB_WIP || '4' }}
+          BASE: origin/${{ github.event.repository.default_branch }}
+        run: |
+          node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts coordinate --repo-dir . --base "$BASE" --wip "$WIP" --go --emit jobs.json | tee plan.txt
+          { echo '### What starts, what waits'; echo '```'; cat plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "jobs=$(cat jobs.json)" >> "$GITHUB_OUTPUT"
+  session:
+    needs: choose
+    if: needs.choose.outputs.jobs != '' && needs.choose.outputs.jobs != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJSON(needs.choose.outputs.jobs) }}
+    name: ${{ matrix.job.kind }} ${{ matrix.job.slug }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.CHB_GH_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      CHB_CLAUDE_ARGS: --permission-mode bypassPermissions --max-budget-usd ${{ vars.CHB_SESSION_BUDGET_USD || '10' }}
+      KIND: ${{ matrix.job.kind }}
+      ARG: ${{ matrix.job.arg }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CHB_GH_TOKEN }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.18'
+      - name: Commit as you
+        env:
+          NAME: ${{ vars.CHB_GIT_NAME || 'Chaminda Wijayasundara' }}
+          EMAIL: ${{ vars.CHB_GIT_EMAIL || 'cwijayasundara@gmail.com' }}
+        run: git config user.name "$NAME" && git config user.email "$EMAIL"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Run the session
+        run: |
+          case "$KIND" in plan|build) ;; *) echo "unexpected kind: $KIND" >&2; exit 2 ;; esac
+          node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts dispatch "$KIND" "$ARG" --repo-dir . --local --go --no-log | tee session.log
+          { echo "### $KIND $ARG"; echo '```'; grep -E '^CHB-RESULT' session.log || echo 'no CHB-RESULT line: read the job log'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

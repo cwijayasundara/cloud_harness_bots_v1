@@ -54,3 +54,17 @@ jobs:
       - name: Install the tools at the pinned commits
         run: node --disable-warning=ExperimentalWarning bin/chb.ts tools install --pin crapper=6fd92c4c9bcc56efb64a2f8743d5a2993bcfd42d,dryer=66ff6d21a42c04afcad89c78a80066176d1294b0,mutator=a5a0cb803b66e0cdb8bf471b3b08af701d424a41
       - run: node --disable-warning=ExperimentalWarning --test test/e2e-real-tools.test.ts
+  pilot:
+    name: pilot dry run (a team of agents on rig's sample sprint, scripted, $0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.18'
+      - name: rig at its latest main
+        run: git clone -q --depth 1 https://github.com/cwijayasundara/rig_v1 "$RUNNER_TEMP/rig_v1"
+      - run: node pilot/dry-run.mjs --rig "$RUNNER_TEMP/rig_v1" --out "$RUNNER_TEMP/pilot"

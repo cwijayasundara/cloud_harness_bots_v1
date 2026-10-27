@@ -83,9 +83,11 @@ export function auditPrompt(base: string, mutate: boolean): string {
 // A reviewer that did not write the change. Locally the Edit tools are removed. Write and Bash stay, because it writes
 // review.md, runs the tests and pushes, so it is told, not forced, to change nothing else; the same holds in the cloud.
 // What it pushed besides review.md shows in the PR's diff.
+// CHB_CLAUDE_ARGS: extra flags for a local session (a CI runner sets the permission mode and a budget there).
+export const extraArgs = (env = process.env.CHB_CLAUDE_ARGS): string[] => (env ?? '').split(/\s+/).filter(Boolean)
 export function command(prompt: string, local: boolean, readOnly = false): string[] {
   if (!local) return ['claude', '--cloud', prompt]
-  return readOnly ? ['claude', '-p', prompt, '--disallowedTools', 'Edit', 'MultiEdit', 'NotebookEdit'] : ['claude', '-p', prompt]
+  return [...(readOnly ? ['claude', '-p', prompt, '--disallowedTools', 'Edit', 'MultiEdit', 'NotebookEdit'] : ['claude', '-p', prompt]), ...extraArgs()]
 }
 
 export function cmdDispatch(args: Args): void {
@@ -115,13 +117,17 @@ export function cmdDispatch(args: Args): void {
   const log = path.join(process.env.CHB_HOME ?? path.join(os.homedir(), '.chb'), 'dispatch.jsonl')
   // A plan's slug is its intent file's name; the coordinator counts a dispatched plan as in flight before its branch exists.
   const slugArg = kind === 'build' || kind === 'review' ? args.pos[1] : kind === 'plan' && /\.md$/.test(args.pos[1] ?? '') ? path.basename(args.pos[1]!, '.md') : undefined
-  if (kind === 'build' && flag(args, 'go') && !flag(args, 'force')) {
+  // --no-log: chb coordinate --emit already recorded this dispatch and checked its caps.
+  const noLog = flag(args, 'no-log')
+  if (kind === 'build' && flag(args, 'go') && !flag(args, 'force') && !noLog) {
     const n = buildsSoFar(log, slugArg!, repoKey(dir))
     if (n >= MAX_BUILDS) die(`${slugArg}: ${n} build session(s) already dispatched. It needs a person now: read the last CHB-RESULT and the proof, then fix the brief or the code (--force sends another session anyway).`)
   }
   if (!flag(args, 'go')) return out([`dry run (pass --go to start it), from ${dir}:`, '', `${cmd[0]} ${cmd[1]} "$(cat <<'PROMPT'`, prompt, `PROMPT`, `)"${cmd.length > 3 ? ` ${cmd.slice(3).join(' ')}` : ''}`].join('\n'))
-  fs.mkdirSync(path.dirname(log), { recursive: true })
-  fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), kind, ...(slugArg ? { slug: slugArg } : {}), repo: repoKey(dir), dir, local: flag(args, 'local'), prompt }) + '\n')
+  if (!noLog) {
+    fs.mkdirSync(path.dirname(log), { recursive: true })
+    fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), kind, ...(slugArg ? { slug: slugArg } : {}), repo: repoKey(dir), dir, local: flag(args, 'local'), prompt }) + '\n')
+  }
   const r = spawnSync(cmd[0]!, cmd.slice(1), { cwd: dir, stdio: 'inherit' })
   if (r.error) die(`claude could not run: ${r.error.message}`, 2)
   process.exitCode = r.status ?? 1

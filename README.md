@@ -30,6 +30,8 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 | `bots/` | Six Grok Bot roles with descriptions, routines and approval rules, plus `setup-computer.sh` |
 | `playbook/` | The rules every bot follows (Keeper maintains it) and the postmortem template |
 | `templates/ub-gates.yml` | The gates as a PR check, judged with the base branch's code and baseline |
+| `templates/chb-coordinate.yml` | The coordinator on GitHub Actions: each session in its own job, pushing as you |
+| `pilot/` | The dry run: rig's sample sprint through the whole chain, scripted, for $0 |
 | `templates/chb-ledger.yml` | The PR ledger hourly in GitHub Actions (labels + one issue), opt-in auto-merge: the outer loop without Grok Bot |
 | `ROLLOUT.md` | 30 days, four weekly gates you can check |
 
@@ -90,6 +92,39 @@ Three traps this avoids, each found by running the real tools:
 - **A bare whole-tree run scores your virtualenv.** On the sample repo it reported 424 CRAP entries instead of 1. chb always passes explicit file lists.
 - **dryer exits 0 even when it finds duplicates.** chb reads `.metrics/dry.edn`, never the exit code.
 
+## Your team of agents: the pilot, then GitHub Actions
+
+**1. Watch it work for free.** The pilot runs rig's own sample sprint through the whole chain in a sandbox with a local origin. It takes about a minute:
+
+```bash
+git clone https://github.com/cwijayasundara/rig_v1 /tmp/rig_v1
+node pilot/dry-run.mjs --rig /tmp/rig_v1
+```
+
+The sprint has three intents, each given a `scope:`: `stock-model`, then `stock-endpoint` and `cart-stock-limit`, which both depend on it. Every hour:
+- `chb coordinate` chooses what starts.
+- The sessions it chose run side by side. A scripted stand-in for Claude makes the branch, plan, code, tests and proof; it is not a model.
+- The pilot plays you, and labels each step as yours: it approves the plans that wait and merges builds whose proof passes.
+
+What it shows, against rig's real readiness, approvals and commit hooks:
+- `stock-model` runs first and alone.
+- Its two dependants are planned side by side, then built side by side.
+- All three ship, and every commit is yours.
+
+CI runs the pilot on every push against rig's latest main.
+
+**2. Run the team for real on GitHub Actions** (no Grok Bot needed). `chb install . --coordinate` adds `.github/workflows/chb-coordinate.yml`. Every weekday hour, one job runs `chb coordinate --go --emit`, and each pick then runs as its own job on its own runner, so four picks means four agents at once. To switch it on:
+
+| Setting | What |
+| --- | --- |
+| Secret `CHB_GH_TOKEN` | A fine-grained token of your own account (cwijayasundara) for this repo, with Contents, Pull requests, Issues and Checks read/write. Sessions push with it, so the pushes are yours and they trigger CI. |
+| Secret `CLAUDE_CODE_OAUTH_TOKEN` | From `claude setup-token` on your Mac |
+| Variable `CHB_COORDINATE` | `on` to start; delete it to stop |
+| Variables `CHB_WIP`, `CHB_SESSION_BUDGET_USD` | Changes in flight (default 4) and the budget per session in dollars (default 10) |
+| Variables `CHB_GIT_NAME`, `CHB_GIT_EMAIL` | The commit identity sessions use. The default is yours: Chaminda Wijayasundara, cwijayasundara@gmail.com |
+
+rig still decides what may start: nothing starts at rung 0, builds need rung 2, and every plan stops for your approval. The dispatch log (session counts, plans still being written) is kept in the Actions cache between runs. If the cache is evicted after a week of no runs, the counts start again from zero.
+
 ## Coordinate: many sessions, one writer per file
 
 Phase 4 of the improvement plan. rig decides what may start:
@@ -102,6 +137,7 @@ Cloud sessions make no local worktrees: each pushes an `sdlc/<slug>` branch, so 
 ```bash
 chb coordinate --repo-dir ~/code/shop            # dry run: what is in flight, what would start, what waits and why
 chb coordinate --repo-dir ~/code/shop --go       # start them (cloud sessions; --local for claude -p here)
+chb coordinate --go --emit jobs.json             # record them and write a job list for a runner (the Actions workflow)
 ```
 
 - **What rig decides, read the way rig reads it:**

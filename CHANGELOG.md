@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 · 2026-10-27
+
+**A team of agents on GitHub Actions** (`templates/chb-coordinate.yml`, `chb install --coordinate`): runs hourly on weekdays.
+- One job chooses with `chb coordinate --go --emit`. Each pick runs as its own job with `chb dispatch … --local --go --no-log`, so four picks run as four agents in parallel.
+- Sessions push with your own token and commit as you. The dispatch log persists in the Actions cache. It is off until the `CHB_COORDINATE=on` variable is set.
+- `chb coordinate --emit <file>` records the picks and writes the job list instead of starting sessions.
+- `chb dispatch --no-log` skips recording, for a dispatch the coordinator already recorded.
+- `CHB_CLAUDE_ARGS` passes extra flags (permission mode, budget) to local sessions only.
+
+**Pilot** (`pilot/dry-run.mjs`): rig's sample sprint through the whole chain in a sandbox, with a scripted stand-in for Claude and the pilot playing you, at no cost.
+- Against rig's latest code, `stock-model` runs first; its two dependants are planned, then built, side by side; all three ship; every commit is yours.
+- It runs in CI on every push, and as a test when `CHB_PILOT_RIG` is set.
+
 ## 0.5.0 · 2026-10-27
 
 **Coordinate** (`chb coordinate`): phase 4 of the Masterstock improvement plan. It runs one repo's queue across cloud sessions, with one writer per file, under a work-in-progress limit.

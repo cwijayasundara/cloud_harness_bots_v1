@@ -188,6 +188,10 @@ test('dispatch: two build sessions per change and repo, a reviewer without edit 
   assert.match(reviewPrompt('cart', 'main'), /you did not write.*do not edit any code/s)
   assert.deepEqual(command('p', true, true), ['claude', '-p', 'p', '--disallowedTools', 'Edit', 'MultiEdit', 'NotebookEdit'])
   assert.deepEqual(command('p', false, true), ['claude', '--cloud', 'p'])
+  process.env.CHB_CLAUDE_ARGS = ' --permission-mode bypassPermissions  --max-budget-usd 5 '
+  assert.deepEqual(command('p', true), ['claude', '-p', 'p', '--permission-mode', 'bypassPermissions', '--max-budget-usd', '5'])
+  assert.deepEqual(command('p', false), ['claude', '--cloud', 'p'], 'local-only flags never reach a cloud session')
+  delete process.env.CHB_CLAUDE_ARGS
   // The cap is enforced before anything starts: a third --go for the same change in the same repo is refused.
   const clone = repo({ '.rig/sensors.json': '{"sensors":[]}' })
   const origin = fs.mkdtempSync(path.join(os.tmpdir(), 'origin-')) + '/r.git'

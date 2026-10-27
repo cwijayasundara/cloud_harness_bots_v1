@@ -261,6 +261,16 @@ export function cmdCoordinate(args: Args): void {
     L.push('  note    not judged here: tests, test fixtures and repo-root config (package.json, lockfiles) that two changes may both edit; rig\'s merge checks catch those')
     out(L.join('\n'))
     if (!go) return out('dry run: pass --go to start these sessions')
+    // --emit <file>: record the picks as dispatched and write them as a job list, for a runner (GitHub Actions) that
+    // starts each in its own job with `chb dispatch <kind> <arg> --local --go --no-log`.
+    const emit = opt(args, 'emit')
+    if (emit) {
+      const jobs = picks.map(p => ({ kind: p.kind, arg: p.kind === 'plan' ? p.intent! : p.slug, slug: p.slug }))
+      fs.mkdirSync(path.dirname(log), { recursive: true })
+      for (const j of jobs) fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), kind: j.kind, slug: j.slug, repo, dir, via: 'emit' }) + '\n')
+      fs.writeFileSync(emit, JSON.stringify(jobs) + '\n')
+      return out(`emitted ${jobs.length} job(s) to ${emit}`)
+    }
     let failed = 0
     for (const p of picks) {
       const argv = [process.execPath, '--disable-warning=ExperimentalWarning', process.argv[1]!, 'dispatch', p.kind, p.kind === 'plan' ? p.intent! : p.slug, '--repo-dir', dir, '--go', ...(flag(args, 'local') ? ['--local'] : [])]

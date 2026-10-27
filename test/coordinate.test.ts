@@ -182,3 +182,21 @@ test('chb coordinate: one run at a time per repo; --go refuses to act on a faile
   assert.equal(r.status, 2); assert.match(r.stderr, /fetch origin failed: not starting sessions from stale branches/)
   assert.deepEqual(w.started(), [])
 })
+
+test('chb coordinate --emit: records the picks and writes a job list for a runner; dispatch --no-log does not count twice', () => {
+  const w = world(2)
+  const jobsFile = path.join(w.root, 'jobs.json'), log = path.join(w.root, 'home', 'dispatch.jsonl')
+  const r = w.run(['--go', '--emit', jobsFile])
+  assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /emitted 2 job\(s\)/)
+  assert.deepEqual(JSON.parse(fs.readFileSync(jobsFile, 'utf8')), [{ kind: 'build', arg: 'y', slug: 'y' }, { kind: 'plan', arg: '.rig/product/sprints/sprint-1/intents/a.md', slug: 'a' }])
+  assert.deepEqual(w.started(), [], 'emit starts nothing itself')
+  const rows = () => fs.readFileSync(log, 'utf8').trim().split('\n').map(l => JSON.parse(l) as { kind: string; slug: string; via?: string })
+  assert.deepEqual(rows().map(x => `${x.kind}:${x.slug}:${x.via}`), ['build:y:emit', 'plan:a:emit'])
+  // The runner's job: dispatch with --no-log runs the session and leaves the log as coordinate wrote it.
+  const env = { ...process.env, CHB_HOME: path.join(w.root, 'home'), PATH: `${path.join(w.root, 'bin')}:${process.env.PATH}`, CHB_CLAUDE_ARGS: '--permission-mode bypassPermissions --max-budget-usd 3' }
+  const d = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', CHB, 'dispatch', 'build', 'y', '--repo-dir', w.dir, '--local', '--go', '--no-log'], { cwd: w.dir, encoding: 'utf8', env })
+  assert.equal(d.status, 0, d.stderr); assert.equal(rows().length, 2); assert.equal(w.started().length, 1)
+  // An hour later the build that was emitted counts as running, and the plan as pending.
+  const again = w.run([])
+  assert.match(again.stdout, /wait {4}y: a build session was started after its last commit/); assert.match(again.stdout, /flight {2}a \(plan dispatched, no branch yet\)/)
+})

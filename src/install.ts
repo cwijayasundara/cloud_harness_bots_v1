@@ -9,6 +9,7 @@
 //   CODEOWNERS (if present)              the baseline and the vendored CLI
 //   .github/workflows/ub-gates.yml       only with --ci: the gates as a PR check, tools installed in CI
 //   .github/workflows/chb-ledger.yml     only with --ledger: the hourly PR ledger, no Grok Bot needed
+//   .github/workflows/chb-coordinate.yml only with --coordinate: the hourly coordinator, each session in its own job
 // --ub-mode also fetches Uncle Bob's ub-mode SKILL.md into ~/.claude/skills/ub-mode (it ships without a licence,
 // so it is fetched from his repo, never copied into yours).
 import fs from 'node:fs'
@@ -160,6 +161,7 @@ export function cmdInstall(args: Args): void {
   }
   if (flag(args, 'ci')) workflow('ub-gates.yml', 'make "ub-gates" a required check; chb merge requires it')
   if (flag(args, 'ledger')) workflow('chb-ledger.yml', 'hourly PR ledger (labels + a "chb PR ledger" issue); set repo variable CHB_AUTOMERGE=true to let it auto-merge')
+  if (flag(args, 'coordinate')) workflow('chb-coordinate.yml', 'hourly coordinator; add secrets CHB_GH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN, then set repo variable CHB_COORDINATE=on')
 
   out([`chb install → ${target}`, ...done.map(d => `  - ${d}`), '', 'Next:',
     '  1. chb tools install            (once per machine, and on the Grok Bot computer)',
