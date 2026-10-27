@@ -4,6 +4,7 @@
 //   .rig/sensors.json                    three ub-* sensors appended (advisory: "blocks": false until week 4 of the rollout)
 //   .claude/skills/policy-craft          ub-mode adapted to rig's stages (a rig policy skill: owner + source)
 //   .claude/skills/verify-app            a template the repo fills in: launch, check, drive, capture, clean up
+//   .claude/skills/tare                  CK's engineering preferences, loaded by name by chb dispatch and chb replay
 //   .gitignore                           tool output (.metrics/, .rig/ub/results/, mutation workers)
 //   CODEOWNERS (if present)              the baseline and the vendored CLI
 //   .github/workflows/ub-gates.yml       only with --ci: the gates as a PR check, tools installed in CI
@@ -117,12 +118,12 @@ export function cmdInstall(args: Args): void {
   }
 
   // Skills are the repo's once written (owner, source, the filled-in verify steps): never overwritten, even with --force.
-  for (const skill of ['policy-craft', 'verify-app']) {
+  for (const skill of ['policy-craft', 'verify-app', 'tare']) {
     const to = path.join(target, '.claude/skills', skill, 'SKILL.md')
     if (fs.existsSync(to)) { done.push(`.claude/skills/${skill}: exists, kept`); continue }
     fs.mkdirSync(path.dirname(to), { recursive: true })
     fs.copyFileSync(path.join(PKG, 'skills', skill, 'SKILL.md'), to)
-    done.push(`.claude/skills/${skill}/SKILL.md written${skill === 'verify-app' ? ' (a template: fill in its launch and drive steps)' : ''}`)
+    done.push(`.claude/skills/${skill}/SKILL.md written${skill === 'verify-app' ? ' (a template: fill in its launch and drive steps)' : skill === 'tare' ? ' (CK\'s v1 draft: prove it with chb replay before trusting it)' : ''}`)
   }
 
   const gi = path.join(target, '.gitignore')

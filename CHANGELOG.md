@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0 · 2026-10-27
+
+**Replay** (`chb replay build | check | run | report`): phase 1 of the Masterstock improvement plan.
+- `build` turns merged PRs (REST) or local commits into tasks. The start is the merge's parent, the hidden set is the test files the change touched, and edited prompts and check results survive a rebuild. Changes with no tests, only tests, or more than `--max-lines` changed lines are skipped, with the reason given.
+- `check` keeps a task only if its hidden tests fail at the start and pass at the accepted solution.
+- `run` runs each task × arm × model × run in a history-free snapshot. Arms are bare, rig and rig+tare, or your own `--arms` file. Hidden tests are restored over the agent's work before scoring. It records cost, turns, tokens, time and diff size, and optionally gate counts. Runs execute in parallel with `--jobs` and can be resumed.
+- `report` gives pass rate with run-to-run spread, and a paired, seeded bootstrap of each arm against a baseline, with the kill rule.
+- Scoring happens in a fresh copy of the start, with only the agent's source changes. Tests, test and build config, snapshots and harness folders come from the start or the accepted solution.
+- No two runs of the same task overlap, tokens are removed from the agent's environment, and user-level Claude settings are not loaded.
+- Infrastructure failures (setup, auth, rate limits, a missing `claude`) are logged and retried, never scored. Background processes left by an agent are killed when it exits. Ctrl-C stops running agents.
+- Verdicts need at least 10 paired tasks. Rebase-merged PRs start before their first commit.
+
+**Tare**
+- `skills/tare` ships the evidence-checked v1, and `chb install` writes it if the repo has none.
+- `chb dispatch` starts every prompt by naming Tare when the repo has it, rather than leaving it to auto-triggering.
+
 ## 0.1.0 · 2026-10-26
 
 First release.

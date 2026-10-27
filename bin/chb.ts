@@ -11,6 +11,7 @@ import { cmdReport } from '../src/report.ts'
 import { cmdTools } from '../src/tools.ts'
 import { cmdInstall, cmdUpgrade } from '../src/install.ts'
 import { cmdDoctor } from '../src/doctor.ts'
+import { cmdReplay } from '../src/replay.ts'
 import { version } from '../src/pkg.ts'
 
 const HELP = `chb: Grok Bot outer loop + Uncle Bob's computed gates, for rig repos
@@ -31,6 +32,14 @@ Outer loop (needs gh, authenticated with a token scoped to the repos in play)
   chb dispatch audit [--base main] [--mutate] [--repo-dir <clone>] [--local] [--go]
   chb report [--days 7] [--repo owner/name] [--touch-log touches.csv] [--json]
 
+Replay (does rig, or Tare, change outcomes on your own merged work?)
+  chb replay build  [--repo owner/name] [--days 90] [--limit 50] [--max-lines 800] | --commits <sha,…>  [--test-cmd "…"] [--setup "…"]
+  chb replay check  [--test-cmd "pytest {hidden}"] [--setup "npm ci"] [--force]     keep tasks whose hidden tests fail→pass
+  chb replay run    [--arm bare,rig,rig+tare] [--arms arms.json] [--tare SKILL.md] [--models sonnet,opus] [--runs 3] [--jobs 2]
+                    [--budget <usd per run>] [--timeout 30] [--agent-cmd "<cmd; prompt on stdin>"] [--gates] [--keep] [--dry-run]
+  chb replay report [--results replay/results] [--baseline bare] [--json]
+  (all take --repo-dir <clone> and --tasks replay/tasks.json)
+
 Setup
   chb doctor [--repo-dir <dir>]          is this machine and this repo ready? (exit 1 when not)
   chb version
@@ -42,7 +51,7 @@ Exit codes: 0 pass, 1 blocking findings or a refused action, 2 a tool or setup f
 
 const COMMANDS: Record<string, (a: ReturnType<typeof parseArgs>) => void> = {
   gate: cmdGate, baseline: cmdBaseline, proof: cmdProof, ledger: cmdLedger, merge: cmdMerge,
-  dispatch: cmdDispatch, report: cmdReport, tools: cmdTools, install: cmdInstall, upgrade: cmdUpgrade, doctor: cmdDoctor,
+  dispatch: cmdDispatch, report: cmdReport, tools: cmdTools, install: cmdInstall, upgrade: cmdUpgrade, doctor: cmdDoctor, replay: cmdReplay,
   version: () => out(version()),
 }
 

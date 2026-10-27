@@ -23,8 +23,9 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 
 | Path | What |
 | --- | --- |
-| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `tools`, `install`, `upgrade`, `doctor` |
+| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `replay`, `tools`, `install`, `upgrade`, `doctor` |
 | `skills/policy-craft` | ub-mode adapted to rig's stages, as a rig policy skill (owner + source) |
+| `skills/tare` | Tare v1: CK's engineering preferences, evidence-checked; loaded by name by `dispatch` and `replay` |
 | `skills/verify-app` | Template for proving a change on the running app (pstack's verification-skill idea) |
 | `bots/` | Six Grok Bot roles with descriptions, routines and approval rules, plus `setup-computer.sh` |
 | `playbook/` | The rules every bot follows (Keeper maintains it) and the postmortem template |
@@ -89,6 +90,54 @@ Three traps this avoids, each found by running the real tools:
 - **A bare whole-tree run scores your virtualenv.** On the sample repo it reported 424 CRAP entries instead of 1. chb always passes explicit file lists.
 - **dryer exits 0 even when it finds duplicates.** chb reads `.metrics/dry.edn`, never the exit code.
 
+## Replay: does rig, or Tare, change outcomes on your work?
+
+Phase 1 of the Masterstock improvement plan: measure before changing anything. `chb replay` reruns your own merged work with the answer hidden, so you find out whether rig and Tare earn their tokens on your tasks rather than on someone's benchmark.
+
+```bash
+cd ~/path/to/repo && git fetch origin
+chb replay build --repo owner/name --days 120 --test-cmd "npm test -- {hidden}" --setup "npm ci"
+#   merged PRs → replay/tasks.json. Start = the merge's parent; hidden = the test files the PR changed.
+#   Read every prompt: rewrite any PR description that gives the fix away.
+chb replay check                      # keep tasks whose hidden tests fail at the start and pass at the solution
+chb replay run --tare .claude/skills/tare/SKILL.md --models sonnet,opus --runs 3 --jobs 4 --budget 3
+chb replay report                     # pass rate, run-to-run spread, cost, and each arm vs bare with a 95% interval
+```
+
+| Arm | What the agent gets |
+| --- | --- |
+| `bare` | The start commit with `.rig/`, `.claude/`, `CLAUDE.md` and `AGENTS.md` removed: stock Claude Code |
+| `rig` | The start commit as it was, with a prompt to use the rig workflow and no person present |
+| `rig+tare` | As `rig`, plus `--tare` copied to `.claude/skills/tare/SKILL.md` and named in the first line of the prompt |
+
+How it keeps the score honest:
+
+- **No history to peek at.** Each run starts from `git archive` of the start commit in a fresh repo with one commit, so the solution is not in `git log`, other branches or the reflog. The default `claude` command disallows `WebFetch` and `WebSearch` and loads project settings only, so your user-level skills and plugins don't leak into the bare arm. `GH_TOKEN` and similar tokens are removed from the agent's environment.
+- **Two runs of the same task never overlap**, so no run can find a neighbour's fix in the temp directory. Arms without Tare also get any committed copy of Tare removed.
+- **The agent never grades itself.** Scoring happens in a fresh copy of the start:
+  - Only the agent's source changes are carried over.
+  - Test files, test and build config (`package.json`, lockfiles, `conftest.py`, `pytest.ini`, jest and vitest config, snapshots, `go.mod` and similar) and `.rig/` and `.claude/` are not carried over.
+  - Hidden tests, and any config the accepted change edited, come from the solution.
+  - Setup runs again, then the tests run.
+
+  An `exit 0` test script, a conftest that skips everything, an edited test, or a tampered `node_modules` all still fail.
+- **Only tasks that can tell a fix from no fix.** `check` drops tasks whose hidden tests already pass at the start, fail at the accepted solution, or time out. Rebase-merged PRs replay from before their first commit.
+- **Noise is reported, not hidden.** Results are paired by task and bootstrapped. The bootstrap is seeded, so reruns print the same interval.
+  - With fewer than 10 paired tasks, the verdict is "too few tasks".
+  - An interval that includes 0 is "no detectable difference".
+  - If `rig+tare` comes out no better than `bare`, the report prints the plan's kill rule.
+- **Infrastructure failures are not scored.** A failed setup, a `claude` that won't start, auth errors and rate limits leave no result. They go to `_infra.log` and are retried on the next run.
+- **Resumable.** Finished runs are kept in `replay/results/`, and rerunning skips them. Results for tasks you later mark invalid drop out of the report; `--all` includes them.
+
+Known limits:
+- The agent still has shell network access. Run replays on a machine or container without outbound access, apart from the model API, if you want to rule out it fetching the merged PR.
+- `~/.claude/CLAUDE.md` may still load. Keep it empty for replay runs, or use a clean user.
+
+Options worth knowing:
+- `--arms arms.json` defines your own arms: `name`, `prompt` with `{task}`, `strip`, `tare`, `setup` and `agentCmd`. An agent command receives the prompt on stdin.
+- `--gates` records `chb gate crap` and `dry` blocking counts per run.
+- `--permission-mode` defaults to `bypassPermissions`, which Claude Code refuses when run as root. Run replays as a normal user on your Mac or bot computer, or pass a different mode.
+
 ## Verified on 26 Oct 2026
 
 Against crapper `6fd92c4`, dryer `66ff6d2`, mutator `a5a0cb8`, and a Python repo initialised with rig_v1 `b436071` (`sdlc.ts init --stack python --full`) plus `chb install`:
@@ -102,7 +151,10 @@ Against crapper `6fd92c4`, dryer `66ff6d2`, mutator `a5a0cb8`, and a Python repo
 
 An independent review then found twelve ways to get past the gates or the merge policy. All twelve are fixed and have regression tests; the important ones were re-run on real rig: an uncommitted edit, a `--no-run` re-judge, and a code commit made after verify each stop the proof. Two of them had been reproduced: Go and Rust mutation snapshots were never read (mutator nests them in subdirectories), and a repo whose base branch is not main or master passed vacuously.
 
-**Not yet verified**, because this needs your accounts: `ledger`, `merge` and `report` against live GitHub (tested here with a recording fake `gh`), and `dispatch --go` starting a real `claude --cloud` session from the Grok Bot computer. That second one is week 1's gate.
+**Not yet verified**, because this needs your accounts:
+- `ledger`, `merge`, `report` and `replay build --repo` against live GitHub. These are tested here with a recording fake `gh`.
+- `dispatch --go` starting a real `claude --cloud` session from the Grok Bot computer. This is week 1's gate.
+- `replay run` with the default `claude -p` agent. The pipeline is tested end to end with scripted agents on a real git repo: history is hidden, arm preparation and Tare are applied, a test-editing agent is still scored by the restored tests, runs resume, and the report pairs results.
 
 ## Findings about rig_v1 worth knowing
 

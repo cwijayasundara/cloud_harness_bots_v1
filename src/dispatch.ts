@@ -16,6 +16,12 @@ import { git } from './git.ts'
 export const CHB = 'node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts'
 const RESULT = 'End your final message with exactly one line:'
 
+// Tare, CK's personal engineering skill, is loaded by name rather than left to auto-triggering: in Vercel's eval a skill
+// went uninvoked in 56% of runs. Present in the repo → every dispatched prompt starts with this line.
+export const TARE_PATH = '.claude/skills/tare/SKILL.md'
+export const TARE_LINE = `Before anything else, read ${TARE_PATH} and follow it for this change.`
+export const withTare = (prompt: string, dir: string): string => fs.existsSync(path.join(dir, TARE_PATH)) ? `${TARE_LINE}\n\n${prompt}` : prompt
+
 export function planPrompt(what: string): string {
   return [
     `/rig:start ${what}`,
@@ -70,6 +76,7 @@ export function cmdDispatch(args: Args): void {
     prompt = auditPrompt(opt(args, 'base') ?? 'main', flag(args, 'mutate') || process.env.CHB_AUDIT_MUTATE === '1')
   } else return die('usage: chb dispatch <plan|build|audit> … [--repo-dir <clone>] [--local] [--go]')
 
+  prompt = withTare(prompt, dir)
   const cmd = command(prompt, flag(args, 'local'))
   const log = path.join(process.env.CHB_HOME ?? path.join(os.homedir(), '.chb'), 'dispatch.jsonl')
   if (!flag(args, 'go')) return out([`dry run (pass --go to start it), from ${dir}:`, '', `${cmd[0]} ${cmd[1]} "$(cat <<'PROMPT'`, prompt, `PROMPT`, `)"`].join('\n'))

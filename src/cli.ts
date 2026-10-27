@@ -2,7 +2,7 @@
 export type Args = { pos: string[]; opts: Record<string, string>; flags: Set<string>; rest: string[] }
 
 // Options that never take a value, so `--json foo` keeps `foo` positional.
-const BOOL = new Set(['no-run', 'strict', 'json', 'allow-loosen', 'go', 'apply', 'labels', 'local', 'ub-mode', 'force', 'help', 'dry-run', 'skip-tools', 'gh', 'ci', 'mutate', 'ledger'])
+const BOOL = new Set(['no-run', 'strict', 'json', 'allow-loosen', 'go', 'apply', 'labels', 'local', 'ub-mode', 'force', 'help', 'dry-run', 'skip-tools', 'gh', 'ci', 'mutate', 'ledger', 'unchecked', 'gates', 'keep', 'all'])
 
 export function parseArgs(argv: string[]): Args {
   const a: Args = { pos: [], opts: {}, flags: new Set(), rest: [] }

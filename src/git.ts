@@ -28,7 +28,7 @@ export const mergeBase = (base: string, cwd = process.cwd()): string | null => g
 export const SOURCE = /\.(clj|cljc|cljs|bb|java|go|ts|tsx|mts|cts|js|jsx|mjs|cjs|rs|py)$/
 const SKIPPED_ANYWHERE = /(^|\/)(\.git|\.hg|\.svn|\.idea|\.venv|venv|node_modules|vendor|\.metrics|testdata|__pycache__|\.clj-kondo|test|tests|spec|specs|__tests__|\.rig|\.claude)\//
 const SKIPPED_AT_ROOT = /^(dist|build|out|coverage|target)\//
-const TEST_FILE = /(_test\.go|_test\.py|(^|\/)test_[^/]*\.py|(^|\/)conftest\.py|\.(test|spec)\.[cm]?[jt]sx?|_test\.(clj[cs]?|bb)|_spec\.clj[cs]?|(^|\/)[^/]*Tests?\.java|\.d\.[cm]?ts)$/
+export const TEST_FILE = /(_test\.go|_test\.py|(^|\/)test_[^/]*\.py|(^|\/)conftest\.py|\.(test|spec)\.[cm]?[jt]sx?|_test\.(clj[cs]?|bb)|_spec\.clj[cs]?|(^|\/)[^/]*Tests?\.java|\.d\.[cm]?ts)$/
 
 export const isSource = (file: string): boolean => { const f = norm(file); return SOURCE.test(f) && !SKIPPED_ANYWHERE.test(f) && !SKIPPED_AT_ROOT.test(f) && !TEST_FILE.test(f) }
 

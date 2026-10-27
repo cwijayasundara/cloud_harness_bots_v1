@@ -1,6 +1,6 @@
 {
   "name": "cloud-harness-bots",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Grok Bot outer loop + Uncle Bob's computed gates for rig repos: the deterministic commands the bots call.",
   "type": "module",
