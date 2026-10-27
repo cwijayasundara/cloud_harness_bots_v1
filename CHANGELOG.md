@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 · 2026-10-27
+
+**Coordinate** (`chb coordinate`): phase 4 of the Masterstock improvement plan. It runs one repo's queue across cloud sessions, with one writer per file, under a work-in-progress limit.
+- **Ready work:** reads rig's `sdlc.ts ready` on the base branch through a temporary worktree.
+- **In flight:** reads from `origin/sdlc/*`. Claims are the intent's scope and touches, the spec's blast radius, the plan's files and the diff. Recently dispatched plans hold their scope too.
+- **rig's rules:** rung 1 starts plans and rung 2 also starts builds. Approval hashes must match. A change counts as shipped when the base has its `pr.md` or the branch is merged by any method, squash and rebase included.
+- **Session limits:** at most two build and two plan sessions per change, and no second build while one may still be running.
+- **Safety:** one run at a time per repo, no `--go` after a failed fetch, and the base is never a change branch.
+- The Smith bot runs it hourly.
+- An independent review found 11 problems: duplicate builds, re-planned shipped work, squash-merged branches that looked in flight forever, a change branch taken as the base, plan loops on closed PRs, stale approvals, builds started below rung 2, and overlap misses. All are fixed, each with a regression test.
+
+**Authorship:** every commit and tag is by Chaminda Wijayasundara <cwijayasundara@gmail.com>.
+
 ## 0.4.0 · 2026-10-27
 
 **Tare over time**: phase 3 of the Masterstock improvement plan, built on rig's learning loop rather than beside it.

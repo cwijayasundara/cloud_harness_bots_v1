@@ -104,15 +104,22 @@ chb coordinate --repo-dir ~/code/shop            # dry run: what is in flight, w
 chb coordinate --repo-dir ~/code/shop --go       # start them (cloud sessions; --local for claude -p here)
 ```
 
-- **In flight:** every unmerged `origin/sdlc/*` branch claims its intent's `scope:`, its spec's `## Blast radius`, its plan's `## Files` and its actual diff. A plan dispatched in the last 6 hours whose branch hasn't appeared yet holds its intent's scope, so two hourly runs never start the same intent.
+- **What rig decides, read the way rig reads it:**
+  - **Ready:** `sdlc.ts ready`, run in a temporary worktree of the base branch, so a stale checkout never re-plans shipped work.
+  - **Rung:** rung 0 starts nothing, rung 1 starts plans (it stops at approval), and rung 2 and above also start builds, because a build session opens the PR. A malformed rung reads as 0.
+  - **Approved:** `approval.json`'s hashes match the branch's spec, plan and requirements. A stale approval waits for a person.
+  - **Shipped:** the base has the change's `pr.md`, or the branch is merged by any method, including squash and rebase.
+- **In flight:** every unshipped `origin/sdlc/*` branch claims its intent's `scope:` and `touches:`, its spec's `## Blast radius`, its plan's `## Files` and its actual diff. A plan dispatched in the last 6 hours whose branch hasn't appeared yet holds its intent's scope. A plain path also claims the folder under it, as in rig's scope rule.
 - **Starts:**
-  - First, approved changes with no passing proof, up to two build sessions per change.
-  - Then ready intents in rig's order (sprint, then deferred last) whose scope overlaps nothing claimed, until the work-in-progress limit (`--wip`, default 4) is reached.
-- **Waits:**
-  - An intent whose scope touches a claimed file, with the file and the change holding it.
-  - An intent with no `scope:`: it starts only when nothing else is in flight.
-  - Anything over the WIP limit.
-  - At rung 0, plans are listed but not started.
+  - Builds first, then ready intents in rig's order (sprint, deferred last) whose writes overlap nothing claimed, until the work-in-progress limit (`--wip`, default 4) is reached.
+  - Each change gets at most two build sessions and two plan sessions (`CHB_MAX_BUILDS`, `CHB_MAX_PLANS`).
+  - No second build starts while one dispatched after the branch's last commit may still be running.
+- **Waits, each with its reason:**
+  - A claimed file, with the change that holds it.
+  - No `scope:`: it starts only when nothing else is in flight.
+  - The WIP limit, the rung, a stale approval, or a used-up session cap.
+- **Safety:** one run at a time per repo (a lock file). `--go` refuses to act if `git fetch` failed. A base that resolves to a change branch is replaced by `origin/main`.
+- **Not judged:** tests, fixtures and repo-root config (`package.json`, lockfiles) that two changes may both edit. rig's merge checks catch those.
 
 The Smith bot runs it hourly (`bots/smith.md`). The rest of phase 4 uses what is already here:
 - **Model-upgrade drill:** `chb replay run --arm rig,rig+tare --models <new>`, then retire the Tare lines the new model passes without help.
