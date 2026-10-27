@@ -19,6 +19,7 @@ import { type Args, flag, opt, out, warn, die } from './cli.ts'
 import { git, defaultBase, SOURCE, TEST_FILE } from './git.ts'
 import { norm } from './judge.ts'
 import { activeSlug, slugFromBranch, frontmatter, toType, CHANGES } from './rig.ts'
+import { cmdTareStatus, cmdTareSync, cmdTareVariants } from './tarekit.ts'
 
 export type RuleName = 'placeholders' | 'frozen-tests' | 'deps' | 'scope'
 export const RULES: RuleName[] = ['placeholders', 'frozen-tests', 'deps', 'scope']
@@ -267,8 +268,11 @@ export const formatFindings = (list: RuleFinding[]): string[] => list.flatMap(f 
 
 export function cmdTare(args: Args): void {
   const which = args.pos[0]
+  if (which === 'status') return cmdTareStatus(args)
+  if (which === 'sync') return cmdTareSync(args)
+  if (which === 'variants') return cmdTareVariants(args)
   const names: RuleName[] = which === 'all' ? RULES : RULES.includes(which as RuleName) ? [which as RuleName] : []
-  if (!names.length) die(`usage: chb tare <${RULES.join('|')}|all> [--base <ref>] [--type bugfix|refactor|feature|chore] [--json]`)
+  if (!names.length) die(`usage: chb tare <${RULES.join('|')}|all> [--base <ref>] [--type bugfix|refactor|feature|chore] [--json]\n       chb tare status|sync|variants … (chb help)`)
   const root = git(['rev-parse', '--show-toplevel'])?.trim()
   if (!root) die('not inside a git repository', 2)
   const c = changeOf(root, opt(args, 'base') ?? defaultBase(root), opt(args, 'type'))

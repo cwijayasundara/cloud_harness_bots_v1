@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 · 2026-10-27
+
+**Tare over time**: phase 3 of the Masterstock improvement plan, built on rig's learning loop rather than beside it.
+- `chb lessons` reads rig's lessons and candidates across repos. Anything seen in two or more repos is proposed as a rule to port, a Tare line, or more evidence for an existing line. It uses no tokens and writes only a proposal.
+- `skills/tare/log.md` records where each Tare rule came from and which check enforces it.
+- `chb tare status` reports untraced lines, stale log entries, lines a blocking check has made removable, and repo copies that differ.
+- `chb tare sync` makes each repo's Tare the canonical one.
+- `chb tare variants` writes Tare minus one line each, with replay arms. Replay arms now take a Tare file path.
+- Tare v1.1 drops "append a proposed lesson": rig's loop mines lessons from recurring evidence, and agent-written lessons didn't help in SkillsBench.
+- The Keeper bot gains a Friday LESSONS routine.
+
 ## 0.3.0 · 2026-10-27
 
 **Tare checks** (`chb tare placeholders | frozen-tests | deps | scope | all`): phase 2 of the Masterstock improvement plan. Tare's machine-checkable lines become checks.

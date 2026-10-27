@@ -2,10 +2,9 @@
 name: tare
 description: CK's engineering preferences for changes in repos he owns. Use at the start of any feature, bugfix, refactor or chore, before /rig:start. Loaded explicitly by chb dispatch and chb replay.
 ---
-# tare (v1)
+# tare (v1.1)
 
 Only CK-specific choices live here. Rules with no exceptions are rig sensors or hooks.
-Each line names the incident or study it came from in brain/tare-log.md.
 
 ## Before you start
 - Read brain/index.md, then only the notes for the files you will touch.
@@ -39,10 +38,6 @@ Each line names the incident or study it came from in brain/tare-log.md.
   Run the full check once, at the end.
 - After two failed attempts at the same step, stop. Write the premise you relied on
   in one sentence to brain/todos.md and move to the next item.
-
-## Lessons
-- When something surprised you, append a proposed lesson to brain/lessons-proposed.md:
-  symptom, cause, fix, PR link. Never edit this file or brain/principles; CK promotes lessons.
 
 ## Words
 - Use the terms in brain/glossary.md exactly.

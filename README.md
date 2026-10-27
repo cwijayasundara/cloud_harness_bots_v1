@@ -23,9 +23,9 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 
 | Path | What |
 | --- | --- |
-| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `replay`, `tare`, `nightly`, `tools`, `install`, `upgrade`, `doctor` |
+| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `replay`, `tare`, `lessons`, `nightly`, `tools`, `install`, `upgrade`, `doctor` |
 | `skills/policy-craft` | ub-mode adapted to rig's stages, as a rig policy skill (owner + source) |
-| `skills/tare` | Tare v1: CK's engineering preferences, evidence-checked; loaded by name by `dispatch` and `replay` |
+| `skills/tare` | Tare: CK's engineering preferences (`SKILL.md`) and where each rule came from (`log.md`). This is the canonical copy: `chb tare sync` copies it into repos |
 | `skills/verify-app` | Template for proving a change on the running app (pstack's verification-skill idea) |
 | `bots/` | Six Grok Bot roles with descriptions, routines and approval rules, plus `setup-computer.sh` |
 | `playbook/` | The rules every bot follows (Keeper maintains it) and the postmortem template |
@@ -128,6 +128,34 @@ Every check prints `BLOCK file:line: what`, then `fix: …`, and ends with the f
 
 **Nightly:** `chb nightly` runs the sensors whose cadence is `nightly`. rig accepts that cadence but never runs it; the Auditor bot calls `chb nightly` at 02:00.
 
+## Tare over time: learning across repos
+
+Phase 3 of the improvement plan. rig already runs the learning loop inside a repo:
+- `sdlc.ts learn mine` and `/rig:learn` turn review findings, waivers and your typed corrections that recur in two changes into candidates.
+- Each candidate gets the strongest fix that fits (architecture, ratchet, test, rule, lesson). A rule must replay on the changes that earned it, and you apply every change.
+
+What one repo can't see is a mistake that recurs across repos. That is a fact about how agents work for you, so it belongs in Tare. chb reads rig's output rather than running a second loop:
+
+```bash
+chb lessons --workspace ~/code --tare skills/tare/SKILL.md --out tare-proposal.md
+chb tare status --workspace ~/code
+chb tare sync --workspace ~/code --write
+chb tare variants --out /tmp/tare-variants
+```
+
+What each command does:
+- **`chb lessons`** reads every repo's `.rig/lessons.md`, the archive and `.rig/learn/candidates.json`, groups what says the same thing, and writes a proposal for anything seen in two or more repos:
+  - **PORT:** a rule one repo already proved (`promoted:<rule>`) goes to the repos that still keep it as prose.
+  - **TARE:** a new Tare line, with its evidence for the log.
+  - **SEEN:** more evidence for a line Tare already has.
+- **`chb tare status`** reports untraced lines (no `log.md` entry), log entries whose line is gone, lines whose check now blocks in every repo (delete them after a week), and repo copies that differ from the canonical Tare.
+- **`chb tare sync`** copies the canonical Tare into each repo. Commit those copies by PR.
+- **`chb tare variants`** writes one Tare per removed line, plus `arms.json`. Replay them with `--baseline tare-full`, and drop any line whose removal changes no outcome.
+
+`chb lessons` uses no model tokens and writes nothing but the proposal; you decide. The Keeper bot runs it on Fridays (`bots/keeper.md`).
+
+**Why the plan changed:** the plan had agents append lessons to `brain/lessons-proposed.md` for the Keeper to curate. rig's loop already does the per-repo half better: it mines evidence that recurs, proves rules by replay and has a person apply them. Agent-written lessons also scored −1.3 points in SkillsBench. So Tare dropped its "append a proposed lesson" line, and chb adds only the cross-repo half.
+
 ## Replay: does rig, or Tare, change outcomes on your work?
 
 Phase 1 of the Masterstock improvement plan: measure before changing anything. `chb replay` reruns your own merged work with the answer hidden, so you find out whether rig and Tare earn their tokens on your tasks rather than on someone's benchmark.
@@ -172,7 +200,7 @@ Known limits:
 - `~/.claude/CLAUDE.md` may still load. Keep it empty for replay runs, or use a clean user.
 
 Options worth knowing:
-- `--arms arms.json` defines your own arms: `name`, `prompt` with `{task}`, `strip`, `tare`, `setup` and `agentCmd`. An agent command receives the prompt on stdin.
+- `--arms arms.json` defines your own arms: `name`, `prompt` with `{task}`, `strip`, `tare` (`true` for `--tare`, or a file path), `setup` and `agentCmd`. An agent command receives the prompt on stdin.
 - `--gates` records `chb gate crap` and `dry` blocking counts per run.
 - `--permission-mode` defaults to `bypassPermissions`, which Claude Code refuses when run as root. Run replays as a normal user on your Mac or bot computer, or pass a different mode.
 

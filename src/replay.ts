@@ -25,7 +25,8 @@ export type Task = {
   config?: string[] // test/build config the solution changed: scored with the solution's version, never the agent's
 }
 export type TaskFile = { version: 1; repo: string | null; built: string; testCmd?: string; setup?: string; tasks: Task[] }
-export type Arm = { name: string; prompt: string; strip?: string[]; tare?: boolean; setup?: string; agentCmd?: string }
+// tare: true uses run's --tare file; a path uses that file (chb tare variants writes one arm per variant).
+export type Arm = { name: string; prompt: string; strip?: string[]; tare?: boolean | string; setup?: string; agentCmd?: string }
 export type Status = 'pass' | 'fail' | 'blocked' | 'timeout' | 'agent-error'
 // Not the agent's doing (setup failed, claude missing, auth, rate limits): never saved as a result, retried on resume.
 export type Infra = { infra: string }
@@ -325,7 +326,8 @@ export async function runOne(j: Job, c: RunCfg): Promise<Result | Infra> {
     for (const s of j.arm.strip ?? []) fs.rmSync(path.join(w, s), { recursive: true, force: true })
     // Arms without Tare must not get a committed copy of it either, or rig vs rig+tare understates it.
     fs.rmSync(path.join(w, TARE_PATH), { force: true })
-    if (j.arm.tare && c.tare) { fs.mkdirSync(path.join(w, path.dirname(TARE_PATH)), { recursive: true }); fs.copyFileSync(c.tare, path.join(w, TARE_PATH)) }
+    const src = typeof j.arm.tare === 'string' ? j.arm.tare : j.arm.tare ? c.tare : null
+    if (src) { fs.mkdirSync(path.join(w, path.dirname(TARE_PATH)), { recursive: true }); fs.copyFileSync(src, path.join(w, TARE_PATH)) }
   })
   let scoreWs: string | null = null
   try {
@@ -389,7 +391,8 @@ async function cmdRun(args: Args, dir: string, file: string): Promise<void> {
   if (opt(args, 'arm')) { const want = opt(args, 'arm')!.split(','); arms = arms.filter(a => want.includes(a.name)) }
   const tare = opt(args, 'tare') ? path.resolve(opt(args, 'tare')!) : null
   if (tare && !fs.existsSync(tare)) die(`--tare ${tare} not found`)
-  if (!tare && arms.some(a => a.tare)) { warn('no --tare <SKILL.md>: skipping the Tare arm(s)'); arms = arms.filter(a => !a.tare) }
+  if (!tare && arms.some(a => a.tare === true)) { warn('no --tare <SKILL.md>: skipping the Tare arm(s)'); arms = arms.filter(a => a.tare !== true) }
+  for (const a of arms) if (typeof a.tare === 'string' && !fs.existsSync(a.tare)) die(`arm ${a.name}: Tare file ${a.tare} not found`)
   if (!arms.length) die('no arms to run')
   const tasks = tf.tasks.filter(t => t.valid === true || (flag(args, 'unchecked') && t.valid !== false))
   if (!tasks.length) die('no valid tasks: run chb replay check first (or --unchecked)')
