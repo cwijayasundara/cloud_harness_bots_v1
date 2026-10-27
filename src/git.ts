@@ -11,9 +11,12 @@ export function git(args: string[], cwd = process.cwd()): string | null {
   return r.status === 0 ? r.stdout : null
 }
 
-// The base branch: CHB_BASE, else the remote's default branch (origin/HEAD), else main or master.
+// The base branch: CHB_BASE, else a pull request's base in GitHub Actions, else the remote's default branch
+// (origin/HEAD), else main or master.
 export function defaultBase(cwd = process.cwd()): string | null {
   if (process.env.CHB_BASE) return process.env.CHB_BASE
+  const pr = process.env.GITHUB_BASE_REF
+  if (pr && git(['rev-parse', '--verify', '-q', `origin/${pr}`], cwd) !== null) return `origin/${pr}`
   const head = git(['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'], cwd)?.trim()
   if (head) return head
   for (const ref of ['origin/main', 'main', 'origin/master', 'master'])

@@ -111,9 +111,19 @@ export function parseBaseline(text: string | null): Baseline {
 
 export const round = (n: number): number => Math.round(n * 100) / 100
 
+// What the agent should do about a blocking finding: lint messages are instructions, not just verdicts.
+export const FIX: Record<Finding['gate'], string> = {
+  crap: 'add tests that reach the uncovered branches, or split the function until each part scores under the threshold; never edit .rig/ub-baseline.json',
+  dry: 'move the shared logic into one function or module that both places call, then delete the copy',
+  mutate: 'add an assertion that fails when this code changes (a surviving mutant means no test notices), or delete the code if nothing needs it',
+}
+
 export function formatVerdict(v: Verdict): string {
   const lines = [`${v.gate}: ${v.blocking} new, ${v.total - v.blocking} legacy`]
-  for (const f of v.findings) lines.push(`  ${f.level === 'new' ? 'BLOCK' : 'warn '} ${f.message}`)
+  for (const f of v.findings) {
+    lines.push(`  ${f.level === 'new' ? 'BLOCK' : 'warn '} ${f.message}`)
+    if (f.level === 'new') lines.push(`        fix: ${FIX[f.gate]}`)
+  }
   for (const n of v.notes) lines.push(`  note  ${n}`)
   return lines.join('\n')
 }

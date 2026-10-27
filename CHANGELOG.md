@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.0 · 2026-10-27
+
+**Tare checks** (`chb tare placeholders | frozen-tests | deps | scope | all`): phase 2 of the Masterstock improvement plan. Tare's machine-checkable lines become checks.
+- `install` adds them as advisory `tare-*` sensors at commit cadence. On an existing repo, run `chb install .` again to add them; your other sensors are kept.
+- Each finding has a `fix:` line, and the last output line is the count.
+- They judge the tree being committed (the index against the merge-base), so unstaged and untracked work is ignored. Settings are read from the merge-base, so a change can't loosen its own checks.
+- In CI the change is found from the PR branch. With no base or on a first commit they say "not judged" instead of crashing.
+- Paths with spaces, non-ASCII names and `diff.noprefix` configs are handled.
+- Settings live in `.rig/tare.json`, which is protected with CODEOWNERS.
+- They leave alone what rig already does: test tampering, red-proof, intent scope, and secrets in file contents.
+- Verified on rig: advisory checks warn. With `blocks: true`, rig refuses the commit and passes it once the problem is fixed.
+
+**Bounded loops and a fresh reviewer**
+- The build prompt allows two fix-up rounds, then reports `status=needs-human`.
+- `chb dispatch build` refuses a third session for the same change unless `--force`.
+- `chb dispatch review <slug>` starts a reviewer session that didn't write the change. Run locally, it has no edit tools.
+
+**Gates:** every blocking finding now ends with a `fix:` instruction.
+
+**`chb nightly`** runs the `nightly` sensors that rig never runs, the way rig would: disabled sensors are skipped, `knownRed` sensors only warn, and `{files}` means the whole tree. The Auditor bot calls it.
+
+**Base branch:** gates and checks use `GITHUB_BASE_REF` in pull requests when `CHB_BASE` isn't set.
+
 ## 0.2.0 · 2026-10-27
 
 **Replay** (`chb replay build | check | run | report`): phase 1 of the Masterstock improvement plan.

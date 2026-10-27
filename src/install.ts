@@ -1,7 +1,7 @@
 // `chb install <rig repo>`: wire this package into a rig_v1 repo, the way rig vendors itself, so a clone or a cloud
 // session needs nothing installed globally:
 //   .rig/ub/{bin,src}                    the chb CLI, vendored (protect it with CODEOWNERS)
-//   .rig/sensors.json                    three ub-* sensors appended (advisory: "blocks": false until week 4 of the rollout)
+//   .rig/sensors.json                    three ub-* and four tare-* sensors appended (all advisory: "blocks": false)
 //   .claude/skills/policy-craft          ub-mode adapted to rig's stages (a rig policy skill: owner + source)
 //   .claude/skills/verify-app            a template the repo fills in: launch, check, drive, capture, clean up
 //   .claude/skills/tare                  CK's engineering preferences, loaded by name by chb dispatch and chb replay
@@ -31,6 +31,19 @@ export const UB_SENSORS: Sensor[] = [
   { id: 'ub-mutate', cmd: `${NODE} gate mutate`, cadence: 'ci', blocks: false, timeoutMs: 1_800_000,
     guide: 'No surviving mutant in changed code: a test must fail when the code changes. Cover the uncovered, kill the survivors, delete dead code.' },
 ]
+
+// Tare's checkable lines (phase 2). Advisory at install; make one blocking after a clean week, then delete its Tare line.
+export const TARE_SENSORS: Sensor[] = [
+  { id: 'tare-placeholders', cmd: `${NODE} tare placeholders`, cadence: 'commit', blocks: false, timeoutMs: 60_000,
+    guide: 'No TODOs, stubs or not-implemented errors in a change: finish it, or leave it out and say so under ## Open questions.' },
+  { id: 'tare-frozen-tests', cmd: `${NODE} tare frozen-tests`, cadence: 'commit', blocks: false, timeoutMs: 60_000,
+    guide: 'Bugfix: commit a test that reproduces the bug before the fix. Refactor: commit characterization tests before changing structure. Never edit those tests afterwards; change the code.' },
+  { id: 'tare-deps', cmd: `${NODE} tare deps`, cadence: 'commit', blocks: false, timeoutMs: 60_000,
+    guide: 'No new dependency unless the change\'s brief names it. Otherwise write it yourself or ask under ## Open questions.' },
+  { id: 'tare-scope', cmd: `${NODE} tare scope`, cadence: 'commit', blocks: false, timeoutMs: 60_000,
+    guide: 'Commit only this change\'s files: no secret files, logs, caches, build output or big binaries.' },
+]
+export const SENSORS: Sensor[] = [...UB_SENSORS, ...TARE_SENSORS]
 // No whole-tree "total" ratchet sensors: rig_v1 (26 Oct 2026) accepts a "nightly" cadence but its `check` runs only
 // stop|commit|ship|ci, so a nightly sensor never runs. The whole-tree trend is the Auditor bot's nightly
 // `chb gate <g> --scope all` and `chb report`. A loosened baseline is flagged at commit by ub-crap and ub-dry (blocking from
@@ -41,7 +54,7 @@ export function mergeSensors(text: string, force: boolean): { text: string; adde
   const j = JSON.parse(text) as { sensors?: (Partial<Sensor> & { id: string })[] }
   const list = j.sensors ?? []
   const added: string[] = [], kept: string[] = []
-  for (const s of UB_SENSORS) {
+  for (const s of SENSORS) {
     const i = list.findIndex(x => x.id === s.id)
     if (i < 0) { list.push(s); added.push(s.id) }
     // --force refreshes the command and guide but keeps the repo's own choices: blocking (week 4), cadence, timeout.
@@ -134,9 +147,9 @@ export function cmdInstall(args: Args): void {
   const owner = opt(args, 'owner')
   const co = ['.github/CODEOWNERS', 'CODEOWNERS'].map(f => path.join(target, f)).find(f => fs.existsSync(f))
   if (co && owner) {
-    const t = fs.readFileSync(co, 'utf8'), nx = appendLines(t, [`/.rig/ub-baseline.json ${owner}`, `/.rig/ub/ ${owner}`], '# chb: only a person loosens the baseline or changes the gates')
+    const t = fs.readFileSync(co, 'utf8'), nx = appendLines(t, [`/.rig/ub-baseline.json ${owner}`, `/.rig/ub/ ${owner}`, `/.rig/tare.json ${owner}`], '# chb: only a person loosens the baseline or changes the gates')
     if (nx !== t) { fs.writeFileSync(co, nx); done.push(`${path.relative(target, co)}: baseline and .rig/ub owned by ${owner}`) }
-  } else done.push(`CODEOWNERS: add \`/.rig/ub-baseline.json <you>\` and \`/.rig/ub/ <you>\`${co ? ' (pass --owner @you to do it)' : ' (no CODEOWNERS file found)'}`)
+  } else done.push(`CODEOWNERS: add \`/.rig/ub-baseline.json <you>\`, \`/.rig/ub/ <you>\` and \`/.rig/tare.json <you>\`${co ? ' (pass --owner @you to do it)' : ' (no CODEOWNERS file found)'}`)
 
   const workflow = (name: string, note: string) => {
     const to = path.join(target, '.github/workflows', name)

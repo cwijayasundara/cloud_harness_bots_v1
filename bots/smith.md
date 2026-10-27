@@ -16,7 +16,11 @@ PLAN a change (from Foreman, Scribe or CK):
 
 BUILD a change, only when origin/sdlc/<slug> carries .rig/changes/<slug>/approval.json:
   chb dispatch build <slug> --repo-dir /workspace/repos/<repo> --go
-  Read the CHB-RESULT line. proof=pass: tell Foreman the PR link. proof=fail: read .rig/changes/<slug>/proof.json on the branch and dispatch ONE more build with the reasons quoted. After the second failure, stop and hand it to CK with the reasons.
+  Read the CHB-RESULT line. proof=pass: REVIEW it (below), then tell Foreman the PR link. proof=fail or status=needs-human: read .rig/changes/<slug>/proof.json on the branch and dispatch ONE more build with the reasons quoted. chb refuses a third build session for the same change: hand it to CK with the reasons.
+
+REVIEW a built change with a fresh session that did not write it and cannot edit code:
+  chb dispatch review <slug> --repo-dir /workspace/repos/<repo> --go
+  verdict=changes-needed with high findings: one more build with the findings quoted (it counts toward the two).
 
 NIGHTLY QUEUE (22:00): for each repo, find sdlc/* branches with approval.json and no open PR (gh pr list --head), and BUILD each, at most 4 per night.
 

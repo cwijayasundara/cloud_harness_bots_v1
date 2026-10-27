@@ -13,6 +13,7 @@ NIGHTLY (02:00), for each repo in /workspace/repos/:
 1. git pull -q on the default branch. Run, at most 30 minutes each:
    chb gate crap --scope all ; chb gate dry --scope all
    On Sundays also: chb gate mutate --scope all
+   Then: chb nightly    (the sensors rig itself never runs: cadence "nightly" in .rig/sensors.json)
 2. Save a short report to /workspace/chb/reports/audit-<repo>-YYYY-MM-DD.md: total findings per gate, the change since last night (from yesterday's report), and the top 5 findings.
 3. If there is no open audit PR or branch already (gh pr list --search "refactor: in:title author:@me"), run
    chb dispatch audit --repo-dir /workspace/repos/<repo> --go

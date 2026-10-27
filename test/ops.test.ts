@@ -7,7 +7,7 @@ import { mergeDecision, policyFromEnv } from '../src/merge.ts'
 import { summarise, overnight, parseTouchLog, median } from '../src/report.ts'
 import { parseReview, toType, frontmatter, slugFromBranch } from '../src/rig.ts'
 import { planPrompt, buildPrompt, auditPrompt, command } from '../src/dispatch.ts'
-import { mergeSensors, appendLines, UB_SENSORS } from '../src/install.ts'
+import { mergeSensors, appendLines, UB_SENSORS, SENSORS } from '../src/install.ts'
 
 const gate = (pass = true) => ({ pass, blocking: pass ? 0 : 2, total: 2, scope: 'changed', head: 'abc', stale: false, untrusted: [] as string[] })
 const proof = (over: Partial<Proof> = {}): Proof => {
@@ -93,12 +93,12 @@ test('dispatch: plan stops at the human gate; build refuses without approval; au
 test('install: sensors appended once, existing ids kept unless forced; ignore lines deduplicated', () => {
   const base = JSON.stringify({ stack: 'node', sensors: [{ id: 'lint', cmd: 'eslint' }, { id: 'ub-dry', cmd: 'mine' }], knownRed: [] })
   const m = mergeSensors(base, false)
-  assert.deepEqual(m.kept, ['ub-dry']); assert.equal(m.added.length, UB_SENSORS.length - 1)
+  assert.deepEqual(m.kept, ['ub-dry']); assert.equal(m.added.length, SENSORS.length - 1)
   const j = JSON.parse(m.text)
-  assert.equal(j.sensors.length, 1 + UB_SENSORS.length); assert.equal(j.stack, 'node'); assert.deepEqual(j.knownRed, [])
+  assert.equal(j.sensors.length, 1 + SENSORS.length); assert.equal(j.stack, 'node'); assert.deepEqual(j.knownRed, [])
   assert.equal(JSON.parse(mergeSensors(base, true).text).sensors.find((s: any) => s.id === 'ub-dry').cmd.includes('gate dry'), true)
   // rig's check never runs "nightly", so no ub sensor may use it
-  assert.ok(UB_SENSORS.every(s => s.cadence !== 'nightly'))
+  assert.ok(SENSORS.every(s => s.cadence !== 'nightly' && s.blocks === false))
   assert.equal(appendLines('node_modules/\n.metrics/\n', ['.metrics/', 'x/'], '# h'), 'node_modules/\n.metrics/\n\n# h\nx/\n')
   assert.equal(appendLines('a\n', ['a'], '# h'), 'a\n')
 })

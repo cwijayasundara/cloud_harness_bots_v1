@@ -20,6 +20,32 @@ const RESULT = 'End your final message with exactly one line:'
 // went uninvoked in 56% of runs. Present in the repo → every dispatched prompt starts with this line.
 export const TARE_PATH = '.claude/skills/tare/SKILL.md'
 export const TARE_LINE = `Before anything else, read ${TARE_PATH} and follow it for this change.`
+// Two fix-up rounds per session and two build sessions per change, then a person looks (Stripe caps CI at two rounds:
+// after that, more agent time mostly buys more cost).
+export const MAX_ROUNDS = 2
+const maxBuilds = Number(process.env.CHB_MAX_BUILDS)
+export const MAX_BUILDS = Number.isInteger(maxBuilds) && maxBuilds > 0 ? maxBuilds : 2
+
+export function reviewPrompt(slug: string, base: string): string {
+  return [
+    `You are reviewing a change you did not write. Check out sdlc/${slug} and pull it. Do not run the build stage and do not edit any code, test or config file.`,
+    `Read .rig/changes/${slug}/intent.md and spec.md, then the whole diff against ${base} (git diff ${base}...HEAD). Run the tests and \`${CHB} tare all\`; read .rig/ub/results/.`,
+    'Judge it as CK would: does it do what the intent says, are the tests real (they fail without the change), is anything outside the change, would you be comfortable reverting it?',
+    `Write .rig/changes/${slug}/review.md in rig's format: a \`verdict: pass|changes-needed\` line, then \`## Findings\` with one line per finding: \`- [severity: critical|high|medium|low] [category: x] path:line: what → fix\`. Commit only that file and push.`,
+    `${RESULT} CHB-RESULT kind=review slug=${slug} verdict=<pass|changes-needed> high=<n>`,
+  ].join('\n')
+}
+
+// Which repository a clone is: its origin URL (so a second clone of the same repo shares the count), else its real path.
+export const repoKey = (dir: string): string => git(['remote', 'get-url', 'origin'], dir)?.trim().replace(/\.git$/, '').replace(/^git@([^:]+):/, 'https://$1/') || (() => { try { return fs.realpathSync(dir) } catch { return dir } })()
+
+// Earlier build dispatches for this change, from the dispatch log.
+export function buildsSoFar(log: string, slug: string, repo: string): number {
+  if (!fs.existsSync(log)) return 0
+  return fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) as { kind?: string; slug?: string; repo?: string; dir?: string } } catch { return {} } })
+    .filter(e => e.kind === 'build' && e.slug === slug && (e.repo ?? e.dir) === repo).length
+}
+
 export const withTare = (prompt: string, dir: string): string => fs.existsSync(path.join(dir, TARE_PATH)) ? `${TARE_LINE}\n\n${prompt}` : prompt
 
 export function planPrompt(what: string): string {
@@ -38,8 +64,8 @@ export function buildPrompt(slug: string): string {
     `Check out the branch sdlc/${slug} and pull it. Confirm .rig/changes/${slug}/approval.json is present; if it is missing, stop and report CHB-RESULT kind=build slug=${slug} status=not-approved.`,
     `Run \`node --disable-warning=ExperimentalWarning .rig/bin/sdlc.ts activate ${slug}\`, then /rig:build, then /rig:test, then /rig:pr. Apply the policy-craft skill throughout.`,
     `After /rig:pr has pushed: run \`${CHB} gate crap\`, \`${CHB} gate dry\` and \`${CHB} proof ${slug}\`.`,
-    'Fix every BLOCK finding in the code: split or test the function, extract the duplicate. Never edit .rig/ub-baseline.json, a test expectation, or a sensor to make a gate pass. Rerun the gates and the proof until the proof passes, at most 3 rounds.',
-    `Commit .rig/changes/${slug}/proof.json and push. ${RESULT} CHB-RESULT kind=build slug=${slug} pr=<url> proof=<pass|fail> rounds=<n>`,
+    `Run \`${CHB} tare all\` too. Fix every BLOCK finding in the code, following its fix: line. Never edit .rig/ub-baseline.json, .rig/tare.json, a test expectation, or a sensor to make a check pass. Rerun the gates, the Tare checks and the proof until the proof passes, at most ${MAX_ROUNDS} rounds; then stop and report status=needs-human with what is still failing.`,
+    `Commit .rig/changes/${slug}/proof.json and push. ${RESULT} CHB-RESULT kind=build slug=${slug} pr=<url> proof=<pass|fail> rounds=<n> status=<done|needs-human>`,
   ].join('\n')
 }
 
@@ -54,8 +80,12 @@ export function auditPrompt(base: string, mutate: boolean): string {
   ].join('\n')
 }
 
-export function command(prompt: string, local: boolean): string[] {
-  return local ? ['claude', '-p', prompt] : ['claude', '--cloud', prompt]
+// A reviewer that did not write the change. Locally the Edit tools are removed. Write and Bash stay, because it writes
+// review.md, runs the tests and pushes, so it is told, not forced, to change nothing else; the same holds in the cloud.
+// What it pushed besides review.md shows in the PR's diff.
+export function command(prompt: string, local: boolean, readOnly = false): string[] {
+  if (!local) return ['claude', '--cloud', prompt]
+  return readOnly ? ['claude', '-p', prompt, '--disallowedTools', 'Edit', 'MultiEdit', 'NotebookEdit'] : ['claude', '-p', prompt]
 }
 
 export function cmdDispatch(args: Args): void {
@@ -72,16 +102,25 @@ export function cmdDispatch(args: Args): void {
     if (!slug || !/^[\w.-]+$/.test(slug)) die('usage: chb dispatch build <slug>')
     if (git(['ls-remote', '--exit-code', 'origin', `refs/heads/sdlc/${slug}`], dir) === null) die(`origin has no branch sdlc/${slug}: dispatch plan first`)
     prompt = buildPrompt(slug)
+  } else if (kind === 'review') {
+    const slug = args.pos[1]
+    if (!slug || !/^[\w.-]+$/.test(slug)) die('usage: chb dispatch review <slug>')
+    prompt = reviewPrompt(slug, opt(args, 'base') ?? 'main')
   } else if (kind === 'audit') {
     prompt = auditPrompt(opt(args, 'base') ?? 'main', flag(args, 'mutate') || process.env.CHB_AUDIT_MUTATE === '1')
-  } else return die('usage: chb dispatch <plan|build|audit> … [--repo-dir <clone>] [--local] [--go]')
+  } else return die('usage: chb dispatch <plan|build|review|audit> … [--repo-dir <clone>] [--local] [--go]')
 
   prompt = withTare(prompt, dir)
-  const cmd = command(prompt, flag(args, 'local'))
+  const cmd = command(prompt, flag(args, 'local'), kind === 'review')
   const log = path.join(process.env.CHB_HOME ?? path.join(os.homedir(), '.chb'), 'dispatch.jsonl')
-  if (!flag(args, 'go')) return out([`dry run (pass --go to start it), from ${dir}:`, '', `${cmd[0]} ${cmd[1]} "$(cat <<'PROMPT'`, prompt, `PROMPT`, `)"`].join('\n'))
+  const slugArg = kind === 'build' || kind === 'review' ? args.pos[1] : undefined
+  if (kind === 'build' && flag(args, 'go') && !flag(args, 'force')) {
+    const n = buildsSoFar(log, slugArg!, repoKey(dir))
+    if (n >= MAX_BUILDS) die(`${slugArg}: ${n} build session(s) already dispatched. It needs a person now: read the last CHB-RESULT and the proof, then fix the brief or the code (--force sends another session anyway).`)
+  }
+  if (!flag(args, 'go')) return out([`dry run (pass --go to start it), from ${dir}:`, '', `${cmd[0]} ${cmd[1]} "$(cat <<'PROMPT'`, prompt, `PROMPT`, `)"${cmd.length > 3 ? ` ${cmd.slice(3).join(' ')}` : ''}`].join('\n'))
   fs.mkdirSync(path.dirname(log), { recursive: true })
-  fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), kind, dir, local: flag(args, 'local'), prompt }) + '\n')
+  fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), kind, ...(slugArg ? { slug: slugArg } : {}), repo: repoKey(dir), dir, local: flag(args, 'local'), prompt }) + '\n')
   const r = spawnSync(cmd[0]!, cmd.slice(1), { cwd: dir, stdio: 'inherit' })
   if (r.error) die(`claude could not run: ${r.error.message}`, 2)
   process.exitCode = r.status ?? 1

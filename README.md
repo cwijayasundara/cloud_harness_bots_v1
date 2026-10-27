@@ -23,7 +23,7 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 
 | Path | What |
 | --- | --- |
-| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `replay`, `tools`, `install`, `upgrade`, `doctor` |
+| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `replay`, `tare`, `nightly`, `tools`, `install`, `upgrade`, `doctor` |
 | `skills/policy-craft` | ub-mode adapted to rig's stages, as a rig policy skill (owner + source) |
 | `skills/tare` | Tare v1: CK's engineering preferences, evidence-checked; loaded by name by `dispatch` and `replay` |
 | `skills/verify-app` | Template for proving a change on the running app (pstack's verification-skill idea) |
@@ -89,6 +89,44 @@ Three traps this avoids, each found by running the real tools:
 - **`--changed` is vacuous once you commit.** The tools read `git status`, so on a committed branch crapper says "No source files to analyze" and exits 0. chb diffs against the merge-base instead.
 - **A bare whole-tree run scores your virtualenv.** On the sample repo it reported 424 CRAP entries instead of 1. chb always passes explicit file lists.
 - **dryer exits 0 even when it finds duplicates.** chb reads `.metrics/dry.edn`, never the exit code.
+
+## Tare checks: the rules a machine can check
+
+Phase 2 of the improvement plan. Each line of Tare that can be checked mechanically becomes a check, because agents follow prose most of the time and a check every time. `chb install` adds them to `.rig/sensors.json` as **advisory** sensors (`"blocks": false`) at commit cadence.
+
+| Tare line | Check | What it catches |
+| --- | --- | --- |
+| No TODOs, stubs or placeholders | `chb tare placeholders` | Added lines with TODO, FIXME, HACK or XXX in comments, and stubs in source: `raise NotImplementedError` (except abstract methods), "not implemented" throws, `todo!()` and `unimplemented!()` |
+| Frozen reproduction test before a bugfix (and characterization tests before a refactor) | `chb tare frozen-tests` | Source changed before a test-only commit; those tests edited later, committed or not |
+| No dependency the brief doesn't name | `chb tare deps` | New direct dependencies in `package.json`, `requirements*.txt`, `pyproject.toml`, `go.mod` or `Cargo.toml` that the change's intent or spec doesn't mention (`plan.md` doesn't count: the build stage edits it). Workspace links and `// indirect` lines are ignored |
+| Commit only your own files | `chb tare scope` | `.env*` files (not `*.example`), keys outside test fixtures, logs, caches, `dist/`, `target/` and `coverage/` at the root, and files over 1 MB other than lockfiles |
+| Stop after two failed attempts | `chb dispatch build` | Refuses a third build session for the same change in the same repo (counted by origin URL; `--force` overrides). The build prompt allows two fix-up rounds, then reports `status=needs-human` |
+| Fresh reviewer | `chb dispatch review <slug>` | Starts a session that didn't write the change. Run locally (`--local`), it has no Edit tools; it keeps Write and Bash for review.md and the tests, so "change nothing else" is an instruction, visible in the PR diff |
+| Lint messages as fix instructions | every gate and check | Each BLOCK line is followed by a `fix:` line the agent can act on |
+
+Every check prints `BLOCK file:line: what`, then `fix: …`, and ends with the finding count, so rig can use it as a ratchet. Results go to `.rig/ub/results/tare-<check>.json`. `chb tare all` runs all four.
+
+**What is judged** is the tree being committed: the index against the merge-base with the base branch.
+- Unstaged edits and untracked scratch files don't count, and following a `fix:` line clears the finding.
+- In CI the change is found from the PR branch (`GITHUB_HEAD_REF`) and the base from `GITHUB_BASE_REF`.
+- With no base or on a first commit, a check reports "not judged" and passes rather than crashing, so it can't wedge commits once it blocks.
+- Paths with spaces or non-ASCII characters, and `diff.noprefix`-style git configs, are handled.
+
+**What rig already does, so these checks don't repeat it:**
+- **Skipped or focused tests, weakened assertions, deleted snapshots:** rig's test-tamper sensor.
+- **Tests that must fail on the base (pass, for a refactor):** rig's red-proof. `frozen-tests` adds the commit order and the freeze, which red-proof can't see: a test rewritten to match a wrong fix can still fail on the base.
+- **Paths a change may touch:** the intent's `scope:`.
+- **Secrets inside file contents:** rig's secret patterns.
+
+**Settings** live in `.rig/tare.json`. It is read from the merge-base, so a change can't loosen the checks that judge it; change it through its own PR. `chb install --owner` also protects it with CODEOWNERS. An invalid pattern becomes a note, not a crash:
+
+```json
+{ "placeholders": { "ignore": ["regex"] }, "deps": { "allow": ["name"] }, "scope": { "stray": ["regex"], "allow": ["^dist/"] } }
+```
+
+**Ratchet:** after a check has run advisory for a week without false positives, set its `"blocks": true` (verified on rig: the commit is refused, with the fix line). Once it has been blocking for a week, delete its line from Tare. The plan's gate is Tare at 30 lines or fewer, with the replay pass rate no lower than in phase 1.
+
+**Nightly:** `chb nightly` runs the sensors whose cadence is `nightly`. rig accepts that cadence but never runs it; the Auditor bot calls `chb nightly` at 02:00.
 
 ## Replay: does rig, or Tare, change outcomes on your work?
 
@@ -159,7 +197,8 @@ An independent review then found twelve ways to get past the gates or the merge 
 ## Findings about rig_v1 worth knowing
 
 - In rig-check's CI job the tools are not installed, so the ub sensors print a skip notice there and defer to the required `ub-gates` check. Locally, and inside ub-gates, a missing tool is a hard failure.
-- rig accepts a `nightly` sensor cadence, but `sdlc.ts check` runs only `stop|commit|ship|ci`, so nightly sensors never run. That includes each stack pack's `mutation` sensor. chb puts no sensor on `nightly`, and the Auditor bot covers whole-tree runs instead.
+- rig accepts a `nightly` sensor cadence, but `sdlc.ts check` runs only `stop|commit|ship|ci`, so nightly sensors never run. That includes each stack pack's `mutation` sensor. chb puts no sensor on `nightly`; `chb nightly` runs the ones you have, and the Auditor bot calls it.
+- rig already owns `.rig/rules.json` (its own rule format) and `/rig:rule`, so chb's checks are `chb tare …`, configured in `.rig/tare.json`.
 - `/rig:start` runs a superpowers brainstorm with a person. `chb dispatch plan` tells an unattended session to leave the questions under `## Open questions`, and you close them before `/rig:approve`.
 - rig has no S/M/L tiers any more, so auto-merge is limited to small `chore` and `refactor` changes (≤ 150 lines, nothing protected, rig-check and ub-gates green). Tune it with `CHB_AUTOMERGE_TYPES`, `CHB_AUTOMERGE_MAX_LINES` and `CHB_REQUIRED_CHECKS`.
 

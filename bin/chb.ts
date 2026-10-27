@@ -12,6 +12,7 @@ import { cmdTools } from '../src/tools.ts'
 import { cmdInstall, cmdUpgrade } from '../src/install.ts'
 import { cmdDoctor } from '../src/doctor.ts'
 import { cmdReplay } from '../src/replay.ts'
+import { cmdTare, cmdNightly } from '../src/tare.ts'
 import { version } from '../src/pkg.ts'
 
 const HELP = `chb: Grok Bot outer loop + Uncle Bob's computed gates, for rig repos
@@ -23,12 +24,16 @@ Gates (run inside a rig repo; last output line is one number, for rig ratchets)
   chb baseline write [--skip crap,dry,mutate] [--no-run] [--allow-loosen]
   chb baseline check [--base <ref>]
   chb proof [<slug>] [--base <ref>] [--json]
+  chb tare <placeholders|frozen-tests|deps|scope|all> [--base <ref>] [--type bugfix|refactor|…] [--json]
+                                    Tare's checkable lines; settings in .rig/tare.json
+  chb nightly                       run the sensors whose cadence is "nightly" (rig itself never does)
 
 Outer loop (needs gh, authenticated with a token scoped to the repos in play)
   chb ledger [--repo owner/name] [--labels] [--history file.jsonl] [--out ledger.md] [--json]
   chb merge <pr> [--repo owner/name] [--go]
   chb dispatch plan <intent path | "task">  [--repo-dir <clone>] [--local] [--go]
-  chb dispatch build <slug>                 [--repo-dir <clone>] [--local] [--go]
+  chb dispatch build <slug>                 [--repo-dir <clone>] [--local] [--go] [--force]   (2 sessions per change, then a person)
+  chb dispatch review <slug> [--base main]  [--repo-dir <clone>] [--local] [--go]           a fresh reviewer that cannot edit code
   chb dispatch audit [--base main] [--mutate] [--repo-dir <clone>] [--local] [--go]
   chb report [--days 7] [--repo owner/name] [--touch-log touches.csv] [--json]
 
@@ -51,7 +56,7 @@ Exit codes: 0 pass, 1 blocking findings or a refused action, 2 a tool or setup f
 
 const COMMANDS: Record<string, (a: ReturnType<typeof parseArgs>) => void> = {
   gate: cmdGate, baseline: cmdBaseline, proof: cmdProof, ledger: cmdLedger, merge: cmdMerge,
-  dispatch: cmdDispatch, report: cmdReport, tools: cmdTools, install: cmdInstall, upgrade: cmdUpgrade, doctor: cmdDoctor, replay: cmdReplay,
+  dispatch: cmdDispatch, report: cmdReport, tools: cmdTools, install: cmdInstall, upgrade: cmdUpgrade, doctor: cmdDoctor, replay: cmdReplay, tare: cmdTare, nightly: cmdNightly,
   version: () => out(version()),
 }
 
