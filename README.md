@@ -23,7 +23,7 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 
 | Path | What |
 | --- | --- |
-| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `replay`, `tare`, `lessons`, `nightly`, `tools`, `install`, `upgrade`, `doctor` |
+| `bin/chb.ts`, `src/` | The CLI: `gate`, `baseline`, `proof`, `ledger`, `merge`, `dispatch`, `report`, `replay`, `tare`, `lessons`, `coordinate`, `nightly`, `tools`, `install`, `upgrade`, `doctor` |
 | `skills/policy-craft` | ub-mode adapted to rig's stages, as a rig policy skill (owner + source) |
 | `skills/tare` | Tare: CK's engineering preferences (`SKILL.md`) and where each rule came from (`log.md`). This is the canonical copy: `chb tare sync` copies it into repos |
 | `skills/verify-app` | Template for proving a change on the running app (pstack's verification-skill idea) |
@@ -89,6 +89,35 @@ Three traps this avoids, each found by running the real tools:
 - **`--changed` is vacuous once you commit.** The tools read `git status`, so on a committed branch crapper says "No source files to analyze" and exits 0. chb diffs against the merge-base instead.
 - **A bare whole-tree run scores your virtualenv.** On the sample repo it reported 424 CRAP entries instead of 1. chb always passes explicit file lists.
 - **dryer exits 0 even when it finds duplicates.** chb reads `.metrics/dry.edn`, never the exit code.
+
+## Coordinate: many sessions, one writer per file
+
+Phase 4 of the improvement plan. rig decides what may start:
+- `sdlc.ts ready` lists intents whose sprint chart is approved and whose dependencies have shipped.
+- `.rig/autonomy.json` says whether the model may start work at all (rung 0: a person starts each intent) and what is deferred.
+- rig's own queue keeps one writer per file across local worktrees.
+
+Cloud sessions make no local worktrees: each pushes an `sdlc/<slug>` branch, so `chb coordinate` reads in-flight work from the remote instead.
+
+```bash
+chb coordinate --repo-dir ~/code/shop            # dry run: what is in flight, what would start, what waits and why
+chb coordinate --repo-dir ~/code/shop --go       # start them (cloud sessions; --local for claude -p here)
+```
+
+- **In flight:** every unmerged `origin/sdlc/*` branch claims its intent's `scope:`, its spec's `## Blast radius`, its plan's `## Files` and its actual diff. A plan dispatched in the last 6 hours whose branch hasn't appeared yet holds its intent's scope, so two hourly runs never start the same intent.
+- **Starts:**
+  - First, approved changes with no passing proof, up to two build sessions per change.
+  - Then ready intents in rig's order (sprint, then deferred last) whose scope overlaps nothing claimed, until the work-in-progress limit (`--wip`, default 4) is reached.
+- **Waits:**
+  - An intent whose scope touches a claimed file, with the file and the change holding it.
+  - An intent with no `scope:`: it starts only when nothing else is in flight.
+  - Anything over the WIP limit.
+  - At rung 0, plans are listed but not started.
+
+The Smith bot runs it hourly (`bots/smith.md`). The rest of phase 4 uses what is already here:
+- **Model-upgrade drill:** `chb replay run --arm rig,rig+tare --models <new>`, then retire the Tare lines the new model passes without help.
+- **Monthly clean-up:** `chb tare status`, run by the Keeper.
+- **Path-scoped judgment:** Claude Code's own path-scoped rules (see its memory docs), written per repo.
 
 ## Tare checks: the rules a machine can check
 

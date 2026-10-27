@@ -14,6 +14,7 @@ import { cmdDoctor } from '../src/doctor.ts'
 import { cmdReplay } from '../src/replay.ts'
 import { cmdTare, cmdNightly } from '../src/tare.ts'
 import { cmdLessons } from '../src/lessons.ts'
+import { cmdCoordinate } from '../src/coordinate.ts'
 import { version } from '../src/pkg.ts'
 
 const HELP = `chb: Grok Bot outer loop + Uncle Bob's computed gates, for rig repos
@@ -43,6 +44,8 @@ Outer loop (needs gh, authenticated with a token scoped to the repos in play)
   chb dispatch build <slug>                 [--repo-dir <clone>] [--local] [--go] [--force]   (2 sessions per change, then a person)
   chb dispatch review <slug> [--base main]  [--repo-dir <clone>] [--local] [--go]           a fresh reviewer that cannot edit code
   chb dispatch audit [--base main] [--mutate] [--repo-dir <clone>] [--local] [--go]
+  chb coordinate [--repo-dir <clone>] [--wip 4] [--base origin/main] [--local] [--go]
+                                    start ready intents and pending builds, one writer per file, under a work-in-progress limit
   chb report [--days 7] [--repo owner/name] [--touch-log touches.csv] [--json]
 
 Replay (does rig, or Tare, change outcomes on your own merged work?)
@@ -64,7 +67,7 @@ Exit codes: 0 pass, 1 blocking findings or a refused action, 2 a tool or setup f
 
 const COMMANDS: Record<string, (a: ReturnType<typeof parseArgs>) => void> = {
   gate: cmdGate, baseline: cmdBaseline, proof: cmdProof, ledger: cmdLedger, merge: cmdMerge,
-  dispatch: cmdDispatch, report: cmdReport, tools: cmdTools, install: cmdInstall, upgrade: cmdUpgrade, doctor: cmdDoctor, replay: cmdReplay, tare: cmdTare, lessons: cmdLessons, nightly: cmdNightly,
+  dispatch: cmdDispatch, report: cmdReport, tools: cmdTools, install: cmdInstall, upgrade: cmdUpgrade, doctor: cmdDoctor, replay: cmdReplay, tare: cmdTare, lessons: cmdLessons, coordinate: cmdCoordinate, nightly: cmdNightly,
   version: () => out(version()),
 }
 

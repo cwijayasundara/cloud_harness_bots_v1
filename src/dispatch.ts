@@ -113,7 +113,8 @@ export function cmdDispatch(args: Args): void {
   prompt = withTare(prompt, dir)
   const cmd = command(prompt, flag(args, 'local'), kind === 'review')
   const log = path.join(process.env.CHB_HOME ?? path.join(os.homedir(), '.chb'), 'dispatch.jsonl')
-  const slugArg = kind === 'build' || kind === 'review' ? args.pos[1] : undefined
+  // A plan's slug is its intent file's name; the coordinator counts a dispatched plan as in flight before its branch exists.
+  const slugArg = kind === 'build' || kind === 'review' ? args.pos[1] : kind === 'plan' && /\.md$/.test(args.pos[1] ?? '') ? path.basename(args.pos[1]!, '.md') : undefined
   if (kind === 'build' && flag(args, 'go') && !flag(args, 'force')) {
     const n = buildsSoFar(log, slugArg!, repoKey(dir))
     if (n >= MAX_BUILDS) die(`${slugArg}: ${n} build session(s) already dispatched. It needs a person now: read the last CHB-RESULT and the proof, then fix the brief or the code (--force sends another session anyway).`)

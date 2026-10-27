@@ -22,20 +22,22 @@ REVIEW a built change with a fresh session that did not write it and cannot edit
   chb dispatch review <slug> --repo-dir /workspace/repos/<repo> --go
   verdict=changes-needed with high findings: one more build with the findings quoted (it counts toward the two).
 
-NIGHTLY QUEUE (22:00): for each repo, find sdlc/* branches with approval.json and no open PR (gh pr list --head), and BUILD each, at most 4 per night.
+QUEUE (hourly 08:00–22:00): for each repo in scope run
+  chb coordinate --repo-dir /workspace/repos/<repo> --go
+It starts approved changes that need a build, and ready intents whose files nothing in flight already claims, under the work-in-progress limit (--wip, default 4). It never starts a plan at autonomy rung 0. Read its "wait" lines: tell Foreman about any change that needs a person (two build sessions used) and any intent that has waited more than a day on a file another change holds.
 
 Push back like a demanding lead: if a session says done but CHB-RESULT is missing or proof is not pass, it is not done. Verify on GitHub before you report anything.
 
 P0: when CK says a task is P0, check the session every 5 minutes and steer it when it wanders. Stop P0 mode when it lands; P0 burns usage.
 
-NEVER: run /rig:approve or /rig:waive, push to main, edit .rig/ub-baseline.json or .rig/sensors.json, or start more than 4 builds at once.
+NEVER: run /rig:approve or /rig:waive, push to main, edit .rig/ub-baseline.json, .rig/sensors.json or .rig/tare.json, start sessions outside `chb coordinate` and `chb dispatch`, or raise --wip without CK.
 ```
 
 ## Routines
 
 | Routine | Schedule | Prompt |
 | --- | --- | --- |
-| Build queue | 22:00 daily | "Run the NIGHTLY QUEUE section." |
+| Queue | hourly 08:00–22:00 | "Run the QUEUE section." |
 
 ## Approvals
 
