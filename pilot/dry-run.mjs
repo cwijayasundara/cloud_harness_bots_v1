@@ -40,7 +40,11 @@ const git = (...args) => run('git', args).stdout.trim()
 const sdlc = (args, { human = false, cwd = DIR } = {}) => run(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(cwd, '.rig/bin/sdlc.ts'), ...args], { cwd, env: { CLAUDE_PROJECT_DIR: cwd, ...(human ? { SDLC_HUMAN: '1' } : {}) } })
 const chb = args => run(process.execPath, ['--disable-warning=ExperimentalWarning', CHB, ...args])
 const write = (rel, text) => { fs.mkdirSync(path.dirname(path.join(DIR, rel)), { recursive: true }); fs.writeFileSync(path.join(DIR, rel), text) }
-const commit = msg => { git('add', '-A'); git('commit', '-q', '-m', msg) }
+// rig commits some human actions itself (approvals, since rig aa1e72f), so commit only what is left
+const commit = (msg, cwd = DIR) => {
+  run('git', ['add', '-A'], { cwd })
+  if (run('git', ['diff', '--cached', '--quiet'], { cwd, ok: false }).status !== 0) run('git', ['commit', '-q', '-m', msg], { cwd })
+}
 const say = s => console.log(s)
 
 // ---------- the repo, onboarded the way rig's own e2e does it ----------
@@ -103,7 +107,7 @@ for (let hour = 1; hour <= 8; hour++) {
       const wt = path.join(OUT, `approve-${slug}`)
       git('worktree', 'add', '-q', '-B', `sdlc/${slug}`, wt, b)
       const a = sdlc(['approve', slug], { human: true, cwd: wt })
-      run('git', ['add', '-A'], { cwd: wt }); run('git', ['commit', '-q', '-m', `approve: ${slug}`], { cwd: wt }); run('git', ['push', '-q', 'origin', `sdlc/${slug}`], { cwd: wt })
+      commit(`approve: ${slug}`, wt); run('git', ['push', '-q', 'origin', `sdlc/${slug}`], { cwd: wt })
       git('worktree', 'remove', '--force', wt)
       say(`   YOU (played by the pilot) approve ${slug}: ${a.stdout.trim().split('\n')[0]}`); acted++
     } else if (has(b, `.rig/changes/${slug}/proof.json`) && JSON.parse(run('git', ['show', `${b}:.rig/changes/${slug}/proof.json`]).stdout).pass) {

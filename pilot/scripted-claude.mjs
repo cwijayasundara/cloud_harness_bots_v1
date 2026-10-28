@@ -22,7 +22,8 @@ const worktree = (branch, from, create) => {
   const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'pilot-wt-'))
   fs.rmSync(wt, { recursive: true })
   git(['fetch', '-q', 'origin'], repo)
-  git(create ? ['worktree', 'add', '-q', '-b', branch, wt, from] : ['worktree', 'add', '-q', '-B', branch, wt, from], repo)
+  // --no-track: sessions run side by side in one repo here, and writing upstream config races on .git/config's lock
+  git(['worktree', 'add', '-q', '--no-track', create ? '-b' : '-B', branch, wt, from], repo)
   return wt
 }
 const done = wt => git(['worktree', 'remove', '--force', wt], repo)
@@ -35,7 +36,7 @@ if (start) {
   sdlc(['new', slug, '--source', intent], wt)
   const files = scopeOf(fs.readFileSync(path.join(wt, intent), 'utf8')).map(s => fileFor(s, slug))
   fs.writeFileSync(path.join(wt, `.rig/changes/${slug}/plan.md`), `# Plan: ${slug}\n\n## Files\n${[...files, `test/${slug}.test.js`].map(f => `- ${f}`).join('\n')}\n\n## Tests\n- B1: test/${slug}.test.js (unit)\n\n## Contracts\nnone\n\n## Verification\n- npm test\n\n## Open questions\nnone\n`)
-  git(['add', '-A'], wt); git(['commit', '-q', '-m', `plan: ${slug}`], wt); git(['push', '-q', '-u', 'origin', `sdlc/${slug}`], wt)
+  git(['add', '-A'], wt); git(['commit', '-q', '-m', `plan: ${slug}`], wt); git(['push', '-q', 'origin', `sdlc/${slug}`], wt)
   done(wt)
   console.log(`CHB-RESULT kind=plan slug=${slug} branch=sdlc/${slug} status=awaiting-approval`)
 } else if (build) {
