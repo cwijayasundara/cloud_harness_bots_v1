@@ -31,9 +31,11 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 | `playbook/` | The rules every bot follows (Keeper maintains it) and the postmortem template |
 | `templates/ub-gates.yml` | The gates as a PR check, judged with the base branch's code and baseline |
 | `templates/chb-coordinate.yml` | The coordinator on GitHub Actions: each session in its own job, pushing as you |
-| `pilot/` | The dry run: rig's sample sprint through the whole chain, scripted, for $0 |
 | `templates/chb-ledger.yml` | The PR ledger hourly in GitHub Actions (labels + one issue), opt-in auto-merge: the outer loop without Grok Bot |
+| `pilot/` | The dry run: rig's sample sprint through the whole chain, scripted, for $0 |
+| `test/` | `node --test` suites; see [Development](#development) |
 | `ROLLOUT.md` | 30 days, four weekly gates you can check |
+| `CHANGELOG.md` | What changed in each release (currently 0.6.0) |
 
 ## Quick start
 
@@ -50,7 +52,7 @@ git switch -c chore/ub-gates && git add -A && git commit -m "chore: Uncle Bob ga
 git push -u origin chore/ub-gates     # open the PR; a code owner approves (sensors.json and .claude/ are protected)
 ```
 
-Then follow [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). Later releases: `npm install -g github:cwijayasundara/cloud_harness_bots_v1` again, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
+Then follow [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). To try it first without touching a real repo, see [Testing it by hand](#testing-it-by-hand). Later releases: `npm install -g github:cwijayasundara/cloud_harness_bots_v1` again, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
 
 ## Two ways to run the outer loop
 
@@ -307,13 +309,64 @@ An independent review then found twelve ways to get past the gates or the merge 
 | Variable | Default | Used by |
 | --- | --- | --- |
 | `UB_TOOLS_DIR` | `~/.ub-tools` | gates, tools |
-| `CHB_BASE` | `origin/HEAD`, then `origin/main`, `main`, `origin/master`, `master` | gates, proof |
+| `CHB_BASE` | the PR's base in Actions (`GITHUB_BASE_REF`), then `origin/HEAD`, `origin/main`, `main`, `origin/master`, `master` | gates, tare checks, proof |
 | `CHB_REQUIRED_GATES` | `crap,dry` | proof (add `mutate` in week 4) |
 | `CHB_ALLOW_BASELINE_LOOSEN` | unset | gates (a person sets it) |
 | `CHB_TOOL_TIMEOUT_MS` | 1800000 | gates |
 | `CHB_AUTOMERGE_TYPES`, `CHB_AUTOMERGE_MAX_LINES`, `CHB_REQUIRED_CHECKS` | `chore,refactor`, 150, `rig-check,ub-gates` | merge |
-| `CHB_HOME`, `CHB_TZ` | `~/.chb`, `Europe/London` | dispatch log, report |
+| `CHB_HOME`, `CHB_TZ` | `~/.chb`, `Europe/London` | dispatch log (dispatch, coordinate), report |
+| `CHB_MAX_BUILDS`, `CHB_MAX_PLANS` | 2, 2 | build and plan sessions per change (dispatch, coordinate) |
+| `CHB_CLAUDE_ARGS` | unset | extra `claude` flags for `--local` sessions only (the coordinate workflow sets permission mode and budget) |
 | `CHB_AUDIT_MUTATE` | unset | dispatch audit |
+| `CHB_E2E`, `CHB_PILOT_RIG` | unset | tests: `1` runs the real-tools e2e; a rig_v1 checkout runs the pilot test |
+
+## Development
+
+```bash
+npm ci
+npm run typecheck && npm test                    # unit and integration suites; e2e and pilot skip unless enabled
+CHB_E2E=1 npm test                               # also the real-tools e2e (needs chb tools install)
+CHB_PILOT_RIG=/tmp/rig_v1 npm test               # also the pilot, against a rig_v1 checkout
+npm run chb -- help                              # run the CLI from the checkout
+```
+
+CI (`.github/workflows/ci.yml`) runs typecheck and tests on Node 22.18 and 24, packs and installs the CLI globally, parses the workflow templates, runs the e2e with the tools pinned at the commits above, and runs the pilot against rig's latest main. Each release is listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Testing it by hand
+
+**Prerequisites:**
+
+| Need | For | Check |
+| --- | --- | --- |
+| Node 22.18+, git | everything | `chb doctor` |
+| Python 3 with `venv`, and PyPI access the first time | Uncle Bob's tools (each builds its own `.venv`) | `chb doctor` |
+| crapper, dryer, mutator | gates, baseline, proof | `chb tools install`, then `chb tools status` |
+| A rig_v1 checkout | the pilot and a scratch rig repo | `git clone https://github.com/cwijayasundara/rig_v1 /tmp/rig_v1` |
+| `gh`, authenticated | ledger, merge, report, replay build | `gh auth status` |
+| `claude` CLI, logged in | dispatch, coordinate, replay run | `claude --version` |
+| A scratch GitHub repo | the GitHub and Actions tiers | |
+
+Work through the tiers in order: each costs more than the one before. Commands that start sessions or change GitHub do nothing without `--go`, so run each without it first and read what it would do.
+
+1. **Suites (free).** `npm ci && npm run typecheck && npm test`. The e2e and pilot skip unless enabled.
+2. **Pilot (free, about a minute).** `node pilot/dry-run.mjs --rig /tmp/rig_v1`. Expect `stock-model` alone first, its two dependants planned and built side by side, and all three shipped.
+3. **Real tools (free).** `chb tools install`, `chb doctor` (machine all ✓), then `CHB_E2E=1 npm test`.
+4. **Gates in a scratch rig repo (free).** Make a small Python repo with a `main` branch and a local bare origin. Run `node /tmp/rig_v1/scripts/sdlc.ts init --stack python --full`, `chb install . --owner @you --ci --ledger` and `chb baseline write --skip mutate`, and commit. Then, on a branch:
+
+   | Do | Run | Expect |
+   | --- | --- | --- |
+   | Add an untested branchy function | `chb gate crap` | BLOCK with a `fix:` line, exit 1 |
+   | Copy an existing function | `chb gate dry` | BLOCK |
+   | Add that function to `.rig/ub-baseline.json` | `chb baseline check` | BLOCK (baseline loosened) |
+   | Add a TODO or `raise NotImplementedError` | `chb tare placeholders` | BLOCK |
+   | Stage a `.env` file | `chb tare scope` | BLOCK |
+   | Add a dependency the intent doesn't name | `chb tare deps` | BLOCK |
+   | Run the gates, then commit more code | `chb proof` | refused as stale |
+   | Split and test the function | `chb gate crap` | passes, last line `0` |
+
+5. **GitHub (free, scratch repo).** Open a few PRs, then `chb ledger --repo you/scratch` (add `--labels` once it looks right), `chb merge <pr> --repo you/scratch` without `--go`, and `chb report --days 7 --repo you/scratch`. These are the commands tested here only with a fake `gh`.
+6. **Real sessions (costs model tokens).** `chb dispatch plan "chore: something tiny" --repo-dir <scratch> --local --go`, then without `--local` for `claude --cloud`, then `chb coordinate --repo-dir <scratch>` and `--go`.
+7. **Actions (costs model tokens).** `chb install . --coordinate`, add the secrets and variables in [the table above](#your-team-of-agents-the-pilot-then-github-actions), and run the workflows from the Actions tab.
 
 ## Credits and licences
 
