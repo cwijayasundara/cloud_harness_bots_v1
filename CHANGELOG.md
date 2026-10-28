@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+**Fix:** `templates/ub-gates.yml` and CI set `UB_TOOLS_DIR` in a step, not the job's `env`. GitHub rejects the `runner` context there, so the whole workflow failed to start. Repos that ran `chb install --ci` on 0.6.0 or earlier should rerun it, or apply the same change to `.github/workflows/ub-gates.yml`.
+
 ## 0.6.0 · 2026-10-27
 
 **A team of agents on GitHub Actions** (`templates/chb-coordinate.yml`, `chb install --coordinate`): runs hourly on weekdays.
