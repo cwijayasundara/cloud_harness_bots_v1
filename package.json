@@ -14,8 +14,8 @@
   "scripts": {
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "build": "tsc -p tsconfig.build.json",
-    "prepare": "tsc -p tsconfig.build.json",
+    "build": "node --disable-warning=ExperimentalWarning scripts/build.mjs",
+    "prepare": "node --disable-warning=ExperimentalWarning scripts/build.mjs",
     "chb": "node --disable-warning=ExperimentalWarning bin/chb.ts"
   },
   "devDependencies": {

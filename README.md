@@ -40,7 +40,7 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 ## Quick start
 
 ```bash
-npm install -g github:cwijayasundara/cloud_harness_bots_v1     # or: git clone … && npm ci && npm link
+npm install -g --install-links github:cwijayasundara/cloud_harness_bots_v1   # or: git clone … && npm ci && npm link
 chb tools install                     # crapper, dryer, mutator → ~/.ub-tools (siblings, as mutator needs)
 chb doctor                            # machine check; every ✗ prints its fix
 
@@ -52,7 +52,80 @@ git switch -c chore/ub-gates && git add -A && git commit -m "chore: Uncle Bob ga
 git push -u origin chore/ub-gates     # open the PR; a code owner approves (sensors.json and .claude/ are protected)
 ```
 
-Then follow [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). To try it first without touching a real repo, see [Testing it by hand](#testing-it-by-hand). Later releases: `npm install -g github:cwijayasundara/cloud_harness_bots_v1` again, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
+`--install-links` matters: without it, npm 11 links a global install of a git package to a temporary clone it then deletes, and `chb` is a dangling link. For agents that build overnight, follow [Step by step: your first overnight run](#step-by-step-your-first-overnight-run). Then see [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). To try it first without touching a real repo, see [Testing it by hand](#testing-it-by-hand). Later releases: the same `npm install -g --install-links …` again, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
+
+## Step by step: your first overnight run
+
+From nothing to PRs that agents built while you slept, on GitHub Actions (no Grok Bot). Each step ends with a check: don't go on until it passes.
+
+**1. Your Mac (once).**
+```bash
+npm install -g --install-links github:cwijayasundara/cloud_harness_bots_v1
+chb tools install
+chb doctor                     # machine: every line ✓ (node 22.18+, git, python3 with venv, the three tools, gh logged in, claude)
+```
+
+**2. Your project repo, with rig vendored.** Cloud sessions and Actions runners clone the repo and can't see your local rig plugin, so rig must live in the repo.
+```bash
+cd ~/code/myproject            # on GitHub, with at least one commit on main
+claude --plugin-dir ~/path/to/rig_v1      # then type /rig:init; commit .rig/, .claude/, CLAUDE.md and push
+```
+Check: `ls .rig/bin/sdlc.ts .claude/skills` shows both, and they are on GitHub's main.
+
+**3. chb in the repo.** It goes in through a PR, because rig protects `.rig/sensors.json` and `.claude/`.
+```bash
+chb install . --owner @you --ci --ledger --coordinate --schedule night
+node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts baseline write --skip mutate
+chb doctor --repo-dir .        # repo: all ✓
+git switch -c chore/chb && git add -A && git commit -m "chore: chb gates and coordinator" && git push -u origin chore/chb
+```
+Open the PR and merge it. Check: `.github/workflows/chb-coordinate.yml` is on main.
+
+**4. GitHub settings** (repo → Settings → Secrets and variables → Actions).
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `CHB_GH_TOKEN` | A fine-grained token for this repo: Contents, Pull requests, Issues, Checks read/write |
+| Secret | `CLAUDE_CODE_OAUTH_TOKEN` | Output of `claude setup-token` on your Mac |
+| Variable | `CHB_COORDINATE` | `on` |
+| Variable | `CHB_SESSION_BUDGET_USD` | Optional; default `10` per session |
+
+Check: Actions is enabled for the repo (Settings → Actions → General).
+
+**5. Let rig start work** (in a Claude Code session in the repo; only you can type these):
+```
+/rig:autonomy set 2 --why "overnight builds"
+```
+Commit and push `.rig/autonomy.json`. Rung 1 starts plans only; rung 2 also starts builds.
+
+**6. Give it work: a sprint.** The coordinator starts only intents that `node .rig/bin/sdlc.ts ready` lists, which means intents from an **approved sprint chart**. A one-off task in chat is not picked up.
+1. Write the sprint's PRD, as rig's README describes, then run `/rig:chart 1` (and `/rig:testplan 1`).
+2. Give each intent a `scope:` in its frontmatter, the files it writes (for example `scope: [src/cart/**]`). Without one, an intent only runs when nothing else is in flight.
+3. Run `/rig:approve chart-1`, and merge the chart branch to main.
+
+Check: `node .rig/bin/sdlc.ts ready` lists intents, and `chb coordinate --repo-dir .` (a dry run) prints `start plan …` lines.
+
+**7. First run, by hand.** Actions → chb-coordinate → Run workflow. The `choose` job's summary shows what starts and what waits, with the reason. Each pick runs as its own `session` job, and plan sessions push `sdlc/<slug>` branches.
+
+**8. The daily loop.**
+- **Evening:** for each `sdlc/<slug>` branch, read spec.md and plan.md, answer anything under `## Open questions`, then `/rig:approve <slug>` and push.
+- **Night:** builds run hourly from 21:23 to 06:23 UTC. Each one builds, tests, opens the PR and commits `proof.json`.
+- **Morning:** PRs carry `chb:ready`, `chb:blocked` or `chb:working` labels. You merge.
+
+To skip the evening approvals for low-risk changes, see [Tier-0 auto-build](#tier-0-auto-build-unattended-up-to-the-pr).
+
+**When it doesn't start, read the `choose` job's summary first.** Every waiting intent says why:
+
+| You see | Do |
+| --- | --- |
+| `0 ready` | No approved sprint chart on main, or every intent has started (step 6) |
+| `rung 0: a person starts each intent` | Step 5 isn't on main |
+| `approved, but rung 1` | Builds need rung 2 |
+| `its approval is stale` | spec.md or plan.md changed after `/rig:approve`; approve again |
+| `2 build session(s) already: it needs a person` | Read the last session's `CHB-RESULT` line and `proof.json` reasons, fix the brief or the code, then start one more build from your Mac: `chb dispatch build <slug> --repo-dir . --go --force` |
+| The `choose` job is skipped | `CHB_COORDINATE` isn't `on` |
+| A session fails at `claude` | `CLAUDE_CODE_OAUTH_TOKEN` is missing or expired: run `claude setup-token` again |
+| A push fails | `CHB_GH_TOKEN` lacks Contents write on this repo |
 
 ## Two ways to run the outer loop
 

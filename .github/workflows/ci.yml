@@ -30,6 +30,11 @@ jobs:
           npm install -g ./cloud-harness-bots-*.tgz
           chb version
           chb help > /dev/null
+      - name: Install globally from GitHub, as the README says (pushes only; a fork's PR has no commit on this repo)
+        if: github.event_name == 'push'
+        run: |
+          npm install -g --install-links "github:${{ github.repository }}#${{ github.sha }}"
+          chb version
       - name: Workflow templates parse
         run: |
           python3 -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]; print('ok')" templates/*.yml .github/workflows/*.yml

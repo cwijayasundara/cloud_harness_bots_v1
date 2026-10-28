@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**Fixes that stopped a first run:**
+- **Global install:** `npm install -g github:…` failed, because npm builds a global git install without its dev dependencies, so `tsc` was missing. The build is now `scripts/build.mjs`, which uses Node's own type stripping and needs no dependencies; `tsc` still type-checks. Install with `--install-links`, or npm 11 links the global install to a temporary clone it deletes. CI now installs every pushed commit this way.
+- **Builds on Actions could never pass their proof.** The coordinator's session job had no crapper, dryer or mutator, so the gates skipped and `chb proof` reported them as not run. Build sessions now install the pinned tools (and Python 3.12). Rerun `chb install . --coordinate --force` to pick this up.
+- README: "Step by step: your first overnight run", with a check after each step and what each "wait" reason means.
+
 **Tier-0 auto-build** (`CHB_AUTO_BUILD=tier0`, `src/autobuild.ts`): fully unattended up to the PR, for low-risk changes. It applies only when you have also turned rig's plan gate off (`"gates": {"plan": false}`, read from the base). A planned change with no approval is then built when it has no open questions, its plan stays inside the spec's blast radius, it lists no contracts, rig's `weight` says light, and its branch touched nothing else and no harness file. Everything else still waits for `/rig:approve`, with the reason.
 - `chb dispatch build` judges the change again before starting the session, and the build prompt keeps the session inside the plan.
 - **`chb merge` now needs a person's approval to auto-merge:** a PR without `.rig/changes/<slug>/approval.json` is left to a person. The slug comes from the PR's branch, not the agent-written `proof.json`.
