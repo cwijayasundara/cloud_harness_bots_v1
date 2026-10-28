@@ -101,18 +101,20 @@ export function branchApproval(dir: string, branch: string, slug: string): Appro
   return approvalOf(Object.fromEntries(['spec.md', 'plan.md', 'requirements.md'].map(n => [n, show(dir, branch, `${ch}/${n}`)])), show(dir, branch, `${ch}/approval.json`))
 }
 
-// rig's weight, run in a throwaway checkout of the branch. Only called once autoVerdict has passed, so the branch's own
-// .rig/bin is the base's (it changed no harness file).
+// rig's weight, run on the branch's .rig/ extracted to a temp folder (everything `weight` reads lives there). Not a git
+// worktree: worktree bookkeeping in .git/worktrees races when several dispatches share a clone, and would touch the
+// clone's own worktrees. Only called once autoVerdict has passed, so the branch's .rig/bin is the base's (it changed no
+// harness file).
 function rigWeight(dir: string, branch: string, slug: string): { weight?: string; reasons?: string[] } | null {
-  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'chb-weight-'))
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'chb-weight-'))
   try {
-    if (git(['worktree', 'add', '-q', '--detach', wt, branch], dir) === null) return null
-    const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(wt, '.rig/bin/sdlc.ts'), 'weight', slug, '--json'], { cwd: wt, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: wt } })
+    const tar = spawnSync('git', ['archive', '--format=tar', branch, '.rig'], { cwd: dir, maxBuffer: 256 * 1024 * 1024 })
+    if (tar.status !== 0 || spawnSync('tar', ['-x', '-C', tmp], { input: tar.stdout }).status !== 0) return null
+    const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(tmp, '.rig/bin/sdlc.ts'), 'weight', slug, '--json'], { cwd: tmp, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: tmp } })
     if (r.status !== 0) return null
     try { return JSON.parse(r.stdout) as { weight?: string; reasons?: string[] } } catch { return null }
   } finally {
-    git(['worktree', 'remove', '--force', wt], dir)
-    fs.rmSync(wt, { recursive: true, force: true })
+    fs.rmSync(tmp, { recursive: true, force: true })
   }
 }
 

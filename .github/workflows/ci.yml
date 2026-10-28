@@ -30,10 +30,10 @@ jobs:
           npm install -g ./cloud-harness-bots-*.tgz
           chb version
           chb help > /dev/null
-      - name: Install globally from GitHub, as the README says (pushes only; a fork's PR has no commit on this repo)
-        if: github.event_name == 'push'
+      - name: Install globally from GitHub with npm 11+ (pushes only; a fork's PR has no commit on this repo)
+        if: github.event_name == 'push' && matrix.node == '24'
         run: |
-          npm uninstall -g cloud-harness-bots   # npm 10 cannot install a git package over an installed copy (ENOTEMPTY)
+          npm uninstall -g cloud-harness-bots
           npm install -g --install-links "github:${{ github.repository }}#${{ github.sha }}"
           chb version
       - name: Workflow templates parse

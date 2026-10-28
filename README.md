@@ -40,7 +40,7 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 ## Quick start
 
 ```bash
-npm install -g --install-links github:cwijayasundara/cloud_harness_bots_v1   # or: git clone … && npm ci && npm link
+git clone https://github.com/cwijayasundara/cloud_harness_bots_v1 ~/code/chb && cd ~/code/chb && npm ci && npm link && cd -
 chb tools install                     # crapper, dryer, mutator → ~/.ub-tools (siblings, as mutator needs)
 chb doctor                            # machine check; every ✗ prints its fix
 
@@ -52,7 +52,7 @@ git switch -c chore/ub-gates && git add -A && git commit -m "chore: Uncle Bob ga
 git push -u origin chore/ub-gates     # open the PR; a code owner approves (sensors.json and .claude/ are protected)
 ```
 
-`--install-links` matters: without it, npm 11 links a global install of a git package to a temporary clone it then deletes, and `chb` is a dangling link. For agents that build overnight, follow [Step by step: your first overnight run](#step-by-step-your-first-overnight-run). Then see [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). To try it first without touching a real repo, see [Testing it by hand](#testing-it-by-hand). Later releases: `npm uninstall -g cloud-harness-bots` (npm 10 can't install over an installed copy), the same `npm install -g --install-links …` again, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
+`npm link` puts `chb` on your PATH from the clone, and works with every npm. Upgrade with `git -C ~/code/chb pull && (cd ~/code/chb && npm ci)`. With npm 11 or later, `npm install -g --install-links github:cwijayasundara/cloud_harness_bots_v1` also works. Without `--install-links`, npm links the install to a temporary clone it then deletes. npm 10 fails a global git install outright (`ENOTEMPTY`). For agents that build overnight, follow [Step by step: your first overnight run](#step-by-step-your-first-overnight-run). Then see [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). To try it first without touching a real repo, see [Testing it by hand](#testing-it-by-hand). Later releases: upgrade the clone as above, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
 
 ## Step by step: your first overnight run
 
@@ -60,7 +60,7 @@ From nothing to PRs that agents built while you slept, on GitHub Actions (no Gro
 
 **1. Your Mac (once).**
 ```bash
-npm install -g --install-links github:cwijayasundara/cloud_harness_bots_v1
+git clone https://github.com/cwijayasundara/cloud_harness_bots_v1 ~/code/chb && (cd ~/code/chb && npm ci && npm link)
 chb tools install
 chb doctor                     # machine: every line ✓ (node 22.18+, git, python3 with venv, the three tools, gh logged in, claude)
 ```
