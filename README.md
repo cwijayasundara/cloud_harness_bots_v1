@@ -134,7 +134,7 @@ CI runs the pilot on every push against rig's latest main.
 | `always` | hourly, around the clock | |
 | `"<cron>"` | any 5-field cron, e.g. `"23 22-23,0-5 * * 1-5"` | |
 
-rig still decides what may start: nothing starts at rung 0, builds need rung 2, and every plan stops for your approval. The dispatch log (session counts, plans still being written) is kept in the Actions cache between runs. If the cache is evicted after a week of no runs, the counts start again from zero.
+rig still decides what may start: nothing starts at rung 0, builds need rung 2, and every plan stops for your approval, unless it is a [tier-0 auto-build](#tier-0-auto-build-unattended-up-to-the-pr). The dispatch log (session counts, plans still being written) is kept in the Actions cache between runs. If the cache is evicted after a week of no runs, the counts start again from zero.
 
 ## Coordinate: many sessions, one writer per file
 
@@ -172,6 +172,29 @@ The Smith bot runs it hourly (`bots/smith.md`). The rest of phase 4 uses what is
 - **Model-upgrade drill:** `chb replay run --arm rig,rig+tare --models <new>`, then retire the Tare lines the new model passes without help.
 - **Monthly clean-up:** `chb tare status`, run by the Keeper.
 - **Path-scoped judgment:** Claude Code's own path-scoped rules (see its memory docs), written per repo.
+
+## Tier-0 auto-build: unattended up to the PR
+
+rig has two human gates: the sprint chart approval (once a sprint) and `/rig:approve` on every change. The second one means each change waits for you between plan and build. A model never approves, and chb never writes `approval.json` or sets `SDLC_HUMAN`. Instead you can let low-risk changes skip the per-change gate. **Two switches, both yours:**
+
+1. **Turn rig's plan gate off** on the default branch: `"gates": {"plan": false}` in `.rig/sensors.json`. It is a protected file, so this goes through a reviewed PR. chb reads it from the base, so a change can't turn it off for itself.
+2. **Set `CHB_AUTO_BUILD=tier0`**: a repository variable for the Actions coordinator, or an environment variable for `chb coordinate` and `chb dispatch`.
+
+Then `chb coordinate` builds a planned change that has no approval **only when all of these hold**. Anything else waits for `/rig:approve` and says why:
+
+| Check | What a person or rig would otherwise catch |
+| --- | --- |
+| spec.md and plan.md exist, with nothing under `## Open questions` in either | rig's `approve` refuses open questions, and only a person closes one |
+| spec.md has a `## Blast radius`, and every plan.md `## Files` path is inside it | rig's `approve` refuses a plan outside the blast radius |
+| plan.md lists no `## Contracts` | a one-way door (rig tier 1) |
+| rig's `sdlc.ts weight <slug>` says `light` | an always-human path or access action in the blast radius, or an intent that asked for full planning (rig tier 2) |
+| the branch changed only its own change folder and files inside the blast radius, and nothing under `.rig/`, `.claude/`, `.github/`, `CLAUDE.md`, `AGENTS.md` or `CODEOWNERS` | a plan that already reached past its scope |
+
+- **Checked twice.** `chb dispatch build` judges the change again before it starts the session, so a hand-run or a stale Actions job can't skip the check.
+- **The build stays inside the plan.** The build session is told there is no approval by design, and to build only plan.md's files. If it needs anything that would have needed you, it stops with `status=needs-human`.
+- **The rest is unchanged.** Rung 2, the build caps, rig's sensors, the gates, `proof.json` and `rig-check` on the PR all apply as before. Signals that exist only after the build, such as diff size and review findings, show up as the PR's rig risk tier.
+- **A person still sees every auto-built change.** `chb merge` never auto-merges a PR without `.rig/changes/<slug>/approval.json`, so a change no person approved is always merged by you.
+- **Try it for free:** `node pilot/dry-run.mjs --rig /tmp/rig_v1 --auto` runs the sample sprint this way: three plans, no approvals, three passing proofs.
 
 ## Tare checks: the rules a machine can check
 
@@ -311,7 +334,7 @@ An independent review then found twelve ways to get past the gates or the merge 
 - rig accepts a `nightly` sensor cadence, but `sdlc.ts check` runs only `stop|commit|ship|ci`, so nightly sensors never run. That includes each stack pack's `mutation` sensor. chb puts no sensor on `nightly`; `chb nightly` runs the ones you have, and the Auditor bot calls it.
 - rig already owns `.rig/rules.json` (its own rule format) and `/rig:rule`, so chb's checks are `chb tare …`, configured in `.rig/tare.json`.
 - `/rig:start` runs a superpowers brainstorm with a person. `chb dispatch plan` tells an unattended session to leave the questions under `## Open questions`, and you close them before `/rig:approve`.
-- rig has no S/M/L tiers any more, so auto-merge is limited to small `chore` and `refactor` changes (≤ 150 lines, nothing protected, rig-check and ub-gates green). Tune it with `CHB_AUTOMERGE_TYPES`, `CHB_AUTOMERGE_MAX_LINES` and `CHB_REQUIRED_CHECKS`.
+- rig has no S/M/L tiers any more, so auto-merge is limited to small `chore` and `refactor` changes (≤ 150 lines, nothing protected, rig-check and ub-gates green, and a person approved the plan). Tune it with `CHB_AUTOMERGE_TYPES`, `CHB_AUTOMERGE_MAX_LINES` and `CHB_REQUIRED_CHECKS`.
 
 ## Environment variables
 
@@ -323,6 +346,7 @@ An independent review then found twelve ways to get past the gates or the merge 
 | `CHB_ALLOW_BASELINE_LOOSEN` | unset | gates (a person sets it) |
 | `CHB_TOOL_TIMEOUT_MS` | 1800000 | gates |
 | `CHB_AUTOMERGE_TYPES`, `CHB_AUTOMERGE_MAX_LINES`, `CHB_REQUIRED_CHECKS` | `chore,refactor`, 150, `rig-check,ub-gates` | merge |
+| `CHB_AUTO_BUILD` | unset (off) | `tier0`: build unapproved tier-0 changes when rig's plan gate is off (coordinate, dispatch build) |
 | `CHB_HOME`, `CHB_TZ` | `~/.chb`, `Europe/London` | dispatch log (dispatch, coordinate), report |
 | `CHB_MAX_BUILDS`, `CHB_MAX_PLANS` | 2, 2 | build and plan sessions per change (dispatch, coordinate) |
 | `CHB_CLAUDE_ARGS` | unset | extra `claude` flags for `--local` sessions only (the coordinate workflow sets permission mode and budget) |
@@ -358,7 +382,7 @@ CI (`.github/workflows/ci.yml`) runs typecheck and tests on Node 22.18 and 24, p
 Work through the tiers in order: each costs more than the one before. Commands that start sessions or change GitHub do nothing without `--go`, so run each without it first and read what it would do.
 
 1. **Suites (free).** `npm ci && npm run typecheck && npm test`. The e2e and pilot skip unless enabled.
-2. **Pilot (free, about a minute).** `node pilot/dry-run.mjs --rig /tmp/rig_v1`. Expect `stock-model` alone first, its two dependants planned and built side by side, and all three shipped.
+2. **Pilot (free, about a minute).** `node pilot/dry-run.mjs --rig /tmp/rig_v1`. Expect `stock-model` alone first, its two dependants planned and built side by side, and all three shipped. Add `--auto` for the same sprint as tier-0 auto-builds, with no approvals.
 3. **Real tools (free).** `chb tools install`, `chb doctor` (machine all ✓), then `CHB_E2E=1 npm test`.
 4. **Gates in a scratch rig repo (free).** Make a small Python repo with a `main` branch and a local bare origin. Run `node /tmp/rig_v1/scripts/sdlc.ts init --stack python --full`, `chb install . --owner @you --ci --ledger` and `chb baseline write --skip mutate`, and commit. Then, on a branch:
 

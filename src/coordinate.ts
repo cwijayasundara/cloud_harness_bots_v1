@@ -6,6 +6,8 @@
 //   - autonomy: `.rig/autonomy.json` rung 0–3 (anything else reads as 0, as rig does): rung 0 starts nothing, rung 1
 //     starts plans (it stops at approval), rung 2+ also starts builds (a build session opens the PR); deferred go last;
 //   - approval: approval.json's hashes must match the branch's spec, plan and requirements, as rig's approvalState checks;
+//     with CHB_AUTO_BUILD=tier0 and rig's plan gate off on the base, an unapproved change that autobuild.ts judges tier 0
+//     is built too (see there); every other one still waits for /rig:approve;
 //   - shipped: the base has `.rig/changes/<slug>/pr.md` (rig's isShipped), or the branch is merged by any method.
 // rig's own queue keeps one writer per file across LOCAL worktrees; cloud sessions push sdlc/<slug> branches instead,
 // so in-flight work is read from the remote. Every unshipped origin/sdlc/* branch claims its intent's `scope:` and
@@ -22,51 +24,21 @@ import { type Args, flag, opt, out, warn, die } from './cli.ts'
 import { git, defaultBase } from './git.ts'
 import { repoKey, MAX_BUILDS } from './dispatch.ts'
 import { globToRe } from './tare.ts'
+import { fmList, sectionPaths, approvalOf, type Approval } from './rig.ts'
+import { autoBuildOn, planGateOff, judgeAuto, type Auto } from './autobuild.ts'
 
 export type Ready = { slug: string; sprint: number; estimateDays?: number | null }
-export type Flight = { slug: string; branch: string | null; claims: string[]; approval: 'approved' | 'stale' | 'missing'; proofPass: boolean; builds: number; buildRunning: boolean }
+// auto: the tier-0 verdict for an unapproved change, when auto-build is on and rig's plan gate is off; else absent.
+export type Flight = { slug: string; branch: string | null; claims: string[]; approval: Approval; proofPass: boolean; builds: number; buildRunning: boolean; auto?: Auto }
 export type Pick = { kind: 'plan' | 'build'; slug: string; intent?: string; why: string }
 export type Skip = { slug: string; why: string }
 const maxPlans = Number(process.env.CHB_MAX_PLANS)
 export const MAX_PLANS = Number.isInteger(maxPlans) && maxPlans > 0 ? maxPlans : 2
 
-// ---------- rig's formats ----------
+// ---------- rig's formats (in rig.ts, shared with the auto-build policy) ----------
 
-// A frontmatter list in rig's three forms: `key: [a, b]`, `key: a`, and `key:` then `  - a` lines.
-export function fmList(text: string, key: string): string[] {
-  const rows = (/^---\n([\s\S]*?)\n---/.exec(text.replace(/\r\n/g, '\n'))?.[1] ?? '').split('\n')
-  const at = rows.findIndex(r => new RegExp(`^${key}:`).test(r))
-  if (at < 0) return []
-  const tidy = (s: string) => s.trim().replace(/^["']|["']$/g, '').replace(/^\.\//, '')
-  const inline = rows[at]!.slice(key.length + 1).replace(/\s+#.*$/, '').trim()
-  if (inline) return inline.replace(/^\[|\]$/g, '').split(',').map(tidy).filter(Boolean)
-  const outp: string[] = []
-  for (const r of rows.slice(at + 1)) { if (!/^\s+-\s*\S/.test(r)) break; outp.push(tidy(r.replace(/^\s+-\s*/, '').replace(/\s+#.*$/, ''))) }
-  return outp.filter(Boolean)
-}
-
-// Bullet paths under a `## <heading>` section, as rig's planFiles and blastRadius read them.
-export function sectionPaths(text: string, heading: string): string[] {
-  const body = text.replace(/\r\n/g, '\n').split(new RegExp(`^##\\s+${heading}[ \\t]*$`, 'm'))[1]?.split(/^## /m)[0] ?? ''
-  return body.split('\n').flatMap(l => {
-    const m = /^\s*(?:[-*]\s+)?(?:[A-Za-z]+:\s+)?(?:`([^`\s]+)`|([^`\s]+))/.exec(l)
-    return m?.[1] ? [m[1]] : m?.[2] && /\/|\.\w+$/.test(m[2]) ? [m[2]] : []
-  }).map(p => p.replace(/^\.\//, ''))
-}
-
+export { fmList, sectionPaths, approvalOf } from './rig.ts'
 export const intentPath = (r: Ready): string => `.rig/product/sprints/sprint-${r.sprint}/intents/${r.slug}.md`
-
-// rig's approvalState, over a branch's files: approval.json's hashes against sha256 (16 hex) of each approved file,
-// CRLF normalised and trailing whitespace trimmed.
-const digest = (text: string): string => createHash('sha256').update(text.replace(/\r\n/g, '\n').replace(/\s+$/, '')).digest('hex').slice(0, 16)
-export function approvalOf(files: Record<string, string>, approvalJson: string): Flight['approval'] {
-  const a = ((): { hashes?: Record<string, string> } | null => { try { return JSON.parse(approvalJson) as { hashes?: Record<string, string> } } catch { return null } })()
-  if (!a?.hashes) return 'missing'
-  const now = Object.fromEntries(['spec.md', 'plan.md', 'requirements.md'].filter(n => files[n]).map(n => [n, digest(files[n]!)]))
-  const keys = [...new Set([...Object.keys(now), ...Object.keys(a.hashes)])]
-  const h = a.hashes
-  return keys.every(k => now[k] === h[k]) ? 'approved' : 'stale'
-}
 
 // ---------- overlap ----------
 
@@ -98,12 +70,16 @@ export function choose(ready: Ready[], flights: Flight[], writes: Map<string, st
   const picks: Pick[] = [], skipped: Skip[] = []
   // Builds first: an approved change waiting for code is further along than a new plan, and holds its claims already.
   for (const f of flights) {
-    if (f.proofPass || f.approval === 'missing') continue
+    if (f.proofPass) continue
+    if (f.approval === 'missing') {
+      if (!f.auto) continue // waiting for /rig:approve, as every unapproved change does without auto-build
+      if (!f.auto.ok) { skipped.push({ slug: f.slug, why: `not tier 0, so it waits for /rig:approve: ${f.auto.why.join('; ')}` }); continue }
+    }
     if (f.approval === 'stale') { skipped.push({ slug: f.slug, why: 'its approval is stale (spec or plan changed since): a person re-approves' }); continue }
     if (o.rung < 2) { skipped.push({ slug: f.slug, why: `approved, but rung ${o.rung}: builds start at rung 2 (a build session opens the PR)` }); continue }
     if (f.buildRunning) { skipped.push({ slug: f.slug, why: 'a build session was started after its last commit and may still be running' }); continue }
     if (f.builds >= o.maxBuilds) { skipped.push({ slug: f.slug, why: `${f.builds} build session(s) already: it needs a person` }); continue }
-    picks.push({ kind: 'build', slug: f.slug, why: `approved, no passing proof, build session ${f.builds + 1} of ${o.maxBuilds}` })
+    picks.push({ kind: 'build', slug: f.slug, why: `${f.approval === 'approved' ? 'approved' : "tier 0 with rig's plan gate off (no person approved it)"}, no passing proof, build session ${f.builds + 1} of ${o.maxBuilds}` })
   }
   let inFlight = flights.length
   const claimed: { path: string; by: string }[] = flights.flatMap(f => f.claims.map(p => ({ path: p, by: f.slug })))
@@ -249,15 +225,21 @@ export function cmdCoordinate(args: Args): void {
     const rung = [0, 1, 2, 3].includes(autonomy.rung as number) ? autonomy.rung as number : 0
     const deferred = Array.isArray(autonomy.deferred) ? autonomy.deferred.filter((d): d is string => typeof d === 'string') : []
     const flights = inFlight(dir, base, log, pendingHours, holdHours)
+    let auto = false
+    try { auto = autoBuildOn() } catch (e) { return die((e as Error).message) }
+    const gateOff = planGateOff(show(dir, base, '.rig/sensors.json'))
+    if (auto && gateOff && rung >= 2) for (const f of flights) if (f.branch && f.approval === 'missing' && !f.proofPass) f.auto = judgeAuto(dir, base, f.branch, f.slug)
     const writes = new Map(ready.map(r => { const t = show(dir, base, intentPath(r)); return [r.slug, [...fmList(t, 'scope'), ...fmList(t, 'touches')]] }))
     const rows = readLog(log)
     const { picks, skipped } = choose(ready, flights, writes, { wip, deferred, maxBuilds: MAX_BUILDS, maxPlans: MAX_PLANS, rung, plansSoFar: s => mine(rows, 'plan', repo, s).length })
 
     if (flag(args, 'json')) return out(JSON.stringify({ base, rung, wip, flights, picks, skipped }, null, 2))
     const L = [`coordinate ${path.basename(dir)} against ${base}: ${flights.length} in flight, ${ready.length} ready, work-in-progress limit ${wip}, autonomy rung ${rung}${autoText && rung === 0 && autonomy.rung !== 0 ? ' (.rig/autonomy.json unreadable or out of range: read as 0, as rig does)' : ''}`]
-    for (const f of flights) L.push(`  flight  ${f.slug}${f.branch ? '' : ' (plan dispatched, no branch yet)'}${f.approval !== 'missing' ? ` (${f.approval})` : ''}${f.proofPass ? ' (proof passes)' : ''}: claims ${f.claims.length ? f.claims.slice(0, 4).join(', ') + (f.claims.length > 4 ? ` +${f.claims.length - 4}` : '') : 'nothing declared'}`)
+    for (const f of flights) L.push(`  flight  ${f.slug}${f.branch ? '' : ' (plan dispatched, no branch yet)'}${f.approval !== 'missing' ? ` (${f.approval})` : f.auto ? ` (${f.auto.ok ? 'tier 0' : 'waits for a person'})` : ''}${f.proofPass ? ' (proof passes)' : ''}: claims ${f.claims.length ? f.claims.slice(0, 4).join(', ') + (f.claims.length > 4 ? ` +${f.claims.length - 4}` : '') : 'nothing declared'}`)
     for (const p of picks) L.push(`  start   ${p.kind} ${p.slug}: ${p.why}`)
     for (const s of skipped) L.push(`  wait    ${s.slug}: ${s.why}`)
+    if (auto && !gateOff) L.push(`  note    CHB_AUTO_BUILD=tier0, but rig's plan gate is on in ${base}: every build waits for /rig:approve`)
+    if (!auto && gateOff) L.push("  note    rig's plan gate is off, but CHB_AUTO_BUILD is not tier0: unapproved changes wait for /rig:approve")
     L.push('  note    not judged here: tests, test fixtures and repo-root config (package.json, lockfiles) that two changes may both edit; rig\'s merge checks catch those')
     out(L.join('\n'))
     if (!go) return out('dry run: pass --go to start these sessions')

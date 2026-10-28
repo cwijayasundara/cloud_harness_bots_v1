@@ -10,7 +10,13 @@
 #   2. Secret CLAUDE_CODE_OAUTH_TOKEN: from `claude setup-token` on your Mac.
 #   3. Variables: CHB_COORDINATE=on to start. Optional: CHB_WIP (default 4), CHB_SESSION_BUDGET_USD (default 10, per
 #      session), CHB_GIT_NAME and CHB_GIT_EMAIL (the commit identity sessions use; default yours below).
-# rig still decides: nothing starts at autonomy rung 0, builds need rung 2, and every plan stops at your approval.
+#   4. Optional, fully unattended up to the PR: variable CHB_AUTO_BUILD=tier0, AND rig's plan gate off on the default
+#      branch ("gates": {"plan": false} in .rig/sensors.json, through a reviewed PR). Then a plan that rig would rate
+#      tier 0 (no open questions, inside its blast radius, no contracts, light weight, no harness file) is built
+#      without your approval. Everything else still waits for /rig:approve, and chb merge never auto-merges a change
+#      no person approved.
+# rig still decides: nothing starts at autonomy rung 0, builds need rung 2, and every plan stops at your approval
+# (unless step 4 makes it tier 0).
 # The dispatch log (session counts, plans still being written) lives in the Actions cache between runs.
 name: chb-coordinate
 on:
@@ -48,6 +54,7 @@ jobs:
         id: pick
         env:
           WIP: ${{ vars.CHB_WIP || '4' }}
+          CHB_AUTO_BUILD: ${{ vars.CHB_AUTO_BUILD }}
           BASE: origin/${{ github.event.repository.default_branch }}
         run: |
           node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts coordinate --repo-dir . --base "$BASE" --wip "$WIP" --go --emit jobs.json | tee plan.txt
@@ -69,6 +76,8 @@ jobs:
       GH_TOKEN: ${{ secrets.CHB_GH_TOKEN }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       CHB_CLAUDE_ARGS: --permission-mode bypassPermissions --max-budget-usd ${{ vars.CHB_SESSION_BUDGET_USD || '10' }}
+      CHB_AUTO_BUILD: ${{ vars.CHB_AUTO_BUILD }}
+      CHB_BASE: origin/${{ github.event.repository.default_branch }}
       KIND: ${{ matrix.job.kind }}
       ARG: ${{ matrix.job.arg }}
     steps:

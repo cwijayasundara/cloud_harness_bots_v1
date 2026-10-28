@@ -46,6 +46,7 @@ Outer loop (needs gh, authenticated with a token scoped to the repos in play)
   chb dispatch audit [--base main] [--mutate] [--repo-dir <clone>] [--local] [--go]
   chb coordinate [--repo-dir <clone>] [--wip 4] [--base origin/main] [--local] [--go]
                                     start ready intents and pending builds, one writer per file, under a work-in-progress limit
+                                    CHB_AUTO_BUILD=tier0 + rig's plan gate off: also build unapproved changes rig rates tier 0
   chb report [--days 7] [--repo owner/name] [--touch-log touches.csv] [--json]
 
 Replay (does rig, or Tare, change outcomes on your own merged work?)

@@ -4,6 +4,8 @@
 //   plan  → /rig:start + /rig:plan, push sdlc/<slug>, stop at the approval gate
 //   (you run /rig:approve <slug> locally and push approval.json)
 //   build → /rig:build, /rig:test, /rig:pr, then the gates and chb proof, push
+//           (CHB_AUTO_BUILD=tier0 with rig's plan gate off: an unapproved change autobuild.ts judges tier 0 is built too;
+//            the verdict is taken again here, so a hand-run or a stale job cannot skip it)
 //   audit → whole-tree gates on the base branch, then a plan (not a build) for the single worst finding
 // Dry by default: prints the exact command. --go runs it; --local uses `claude -p` on this machine instead of the cloud.
 import fs from 'node:fs'
@@ -11,7 +13,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { type Args, flag, opt, out, die } from './cli.ts'
-import { git } from './git.ts'
+import { git, defaultBase } from './git.ts'
+import { autoBuildOn, planGateOff, judgeAuto, branchApproval } from './autobuild.ts'
 
 export const CHB = 'node --disable-warning=ExperimentalWarning .rig/ub/bin/chb.ts'
 const RESULT = 'End your final message with exactly one line:'
@@ -59,9 +62,12 @@ export function planPrompt(what: string): string {
   ].join('\n')
 }
 
-export function buildPrompt(slug: string): string {
+// auto: built with no approval.json, as a tier-0 change with rig's plan gate off; the session keeps to what made it tier 0.
+export function buildPrompt(slug: string, auto = false): string {
   return [
-    `Check out the branch sdlc/${slug} and pull it. Confirm .rig/changes/${slug}/approval.json is present; if it is missing, stop and report CHB-RESULT kind=build slug=${slug} status=not-approved.`,
+    auto
+      ? `Check out the branch sdlc/${slug} and pull it. It has no approval.json by design: rig's plan gate is off in this repo and chb judged the plan tier 0 (no open questions, every file inside spec.md's ## Blast radius, no contracts, light weight). Never write approval.json and never run /rig:approve. Build only what plan.md's ## Files lists. If the work needs a file outside the blast radius, a contract, a harness file (.rig/, .claude/, .github/, CLAUDE.md) or a decision the spec does not make, stop and report CHB-RESULT kind=build slug=${slug} status=needs-human with why.`
+      : `Check out the branch sdlc/${slug} and pull it. Confirm .rig/changes/${slug}/approval.json is present; if it is missing, stop and report CHB-RESULT kind=build slug=${slug} status=not-approved.`,
     `Run \`node --disable-warning=ExperimentalWarning .rig/bin/sdlc.ts activate ${slug}\`, then /rig:build, then /rig:test, then /rig:pr. Apply the policy-craft skill throughout.`,
     `After /rig:pr has pushed: run \`${CHB} gate crap\`, \`${CHB} gate dry\` and \`${CHB} proof ${slug}\`.`,
     `Run \`${CHB} tare all\` too. Fix every BLOCK finding in the code, following its fix: line. Never edit .rig/ub-baseline.json, .rig/tare.json, a test expectation, or a sensor to make a check pass. Rerun the gates, the Tare checks and the proof until the proof passes, at most ${MAX_ROUNDS} rounds; then stop and report status=needs-human with what is still failing.`,
@@ -90,6 +96,22 @@ export function command(prompt: string, local: boolean, readOnly = false): strin
   return [...(readOnly ? ['claude', '-p', prompt, '--disallowedTools', 'Edit', 'MultiEdit', 'NotebookEdit'] : ['claude', '-p', prompt]), ...extraArgs()]
 }
 
+// Is this build an auto-build? Only when auto-build is on, rig's plan gate is off on the base and nobody approved the
+// change; then it must be tier 0, or nothing starts. Off, approved or gate on: an ordinary build (false).
+function autoBuild(dir: string, slug: string, baseOpt: string | undefined): boolean {
+  let on = false
+  try { on = autoBuildOn() } catch (e) { return die((e as Error).message) }
+  if (!on) return false
+  if (git(['fetch', '-q', 'origin'], dir) === null) die('git fetch origin failed: not judging an auto-build from stale branches', 2)
+  const base = baseOpt ?? defaultBase(dir)
+  if (!base) return die('no base branch to read rig\'s plan gate from: pass --base origin/main', 2)
+  const branch = `origin/sdlc/${slug}`
+  if (!planGateOff(git(['show', `${base}:.rig/sensors.json`], dir) ?? '') || branchApproval(dir, branch, slug) !== 'missing') return false
+  const v = judgeAuto(dir, base, branch, slug)
+  if (!v.ok) die(`${slug}: not approved and not tier 0, so a person runs /rig:approve first: ${v.why.join('; ')}`)
+  return true
+}
+
 export function cmdDispatch(args: Args): void {
   const kind = args.pos[0]
   const dir = path.resolve(opt(args, 'repo-dir') ?? process.cwd())
@@ -103,7 +125,7 @@ export function cmdDispatch(args: Args): void {
     const slug = args.pos[1]
     if (!slug || !/^[\w.-]+$/.test(slug)) die('usage: chb dispatch build <slug>')
     if (git(['ls-remote', '--exit-code', 'origin', `refs/heads/sdlc/${slug}`], dir) === null) die(`origin has no branch sdlc/${slug}: dispatch plan first`)
-    prompt = buildPrompt(slug)
+    prompt = buildPrompt(slug, autoBuild(dir, slug, opt(args, 'base')))
   } else if (kind === 'review') {
     const slug = args.pos[1]
     if (!slug || !/^[\w.-]+$/.test(slug)) die('usage: chb dispatch review <slug>')

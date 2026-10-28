@@ -90,7 +90,7 @@ test('ledger over REST: classifies from proof.json, accepts proof-only commits, 
 })
 
 test('merge over REST: dry by default; --go merges guarded by the head sha; refusals', () => {
-  const ok: Spec = { n: 9, branch: 'sdlc/tidy', sha: 'abc1234', checks: ['rig-check', 'ub-gates'], files: ['src/a.ts', '.rig/changes/tidy/proof.json'], proof: proof('abc1234') }
+  const ok: Spec = { n: 9, branch: 'sdlc/tidy', sha: 'abc1234', checks: ['rig-check', 'ub-gates'], files: ['src/a.ts', '.rig/changes/tidy/approval.json', '.rig/changes/tidy/proof.json'], proof: proof('abc1234') }
   let g = fakeGh(server([ok]))
   let r = run(['merge', '9', '--repo', 'o/r'], g.dir)
   assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /AUTO-MERGE[\s\S]*dry run/)
@@ -105,10 +105,16 @@ test('merge over REST: dry by default; --go merges guarded by the head sha; refu
   r = run(['merge', '9', '--repo', 'o/r', '--go'], g.dir)
   assert.equal(r.status, 1); assert.match(r.stdout, /protected paths: .*\.github\/workflows\/ub-gates\.yml/)
 
+  // a tier-0 auto-build (no person approved its plan) is never also merged by no person
+  g = fakeGh(server([{ ...ok, files: ['src/a.ts', '.rig/changes/tidy/proof.json'] }]))
+  r = run(['merge', '9', '--repo', 'o/r', '--go'], g.dir)
+  assert.equal(r.status, 1); assert.match(r.stdout, /no person approved its plan/)
+  assert.ok(!writes(g.log).some(w => w.startsWith('PUT')), 'nothing merged')
+
   // a partial file list is refused, never judged
   g = fakeGh(server([{ ...ok, changed: 120 }]))
   r = run(['merge', '9', '--repo', 'o/r', '--go'], g.dir)
-  assert.equal(r.status, 2); assert.match(r.stderr, /listed 2 of 120 files/)
+  assert.equal(r.status, 2); assert.match(r.stderr, /listed 3 of 120 files/)
 
   // without the ub-gates check the agent-written proof alone is not enough
   g = fakeGh(server([{ ...ok, checks: ['rig-check'] }]))

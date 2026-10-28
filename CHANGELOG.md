@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Tier-0 auto-build** (`CHB_AUTO_BUILD=tier0`, `src/autobuild.ts`): fully unattended up to the PR, for low-risk changes. It applies only when you have also turned rig's plan gate off (`"gates": {"plan": false}`, read from the base). A planned change with no approval is then built when it has no open questions, its plan stays inside the spec's blast radius, it lists no contracts, rig's `weight` says light, and its branch touched nothing else and no harness file. Everything else still waits for `/rig:approve`, with the reason.
+- `chb dispatch build` judges the change again before starting the session, and the build prompt keeps the session inside the plan.
+- **`chb merge` now needs a person's approval to auto-merge:** a PR without `.rig/changes/<slug>/approval.json` is left to a person. The slug comes from the PR's branch, not the agent-written `proof.json`.
+- `pilot/dry-run.mjs --auto` runs the sample sprint this way, and CI runs it too. The workflow template passes `CHB_AUTO_BUILD` and the base branch to its jobs.
+- `fmList`, `sectionPaths` and `approvalOf` moved to `src/rig.ts`; `coordinate.ts` re-exports them.
+
 **`chb install --schedule day|night|always|"<cron>"`** sets when the coordinator runs. `night` (hourly, 21:23–06:23 UTC) is for agents that build while you sleep. Rerunning it on an installed `chb-coordinate.yml` rewrites only the cron line. `chb help` now lists `--coordinate` too.
 
 **Pilot fixes:**

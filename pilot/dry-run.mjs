@@ -9,6 +9,8 @@
 //   - each chosen session runs side by side (`chb dispatch … --local --go --no-log`), with a scripted stand-in for
 //     Claude (pilot/scripted-claude.mjs) that makes the branch, plan, code, tests and proof a session would;
 //   - the pilot then plays YOU, and says so: it approves plans that are waiting and merges builds with a passing proof.
+// --auto: the tier-0 auto-build path instead. YOU turn rig's plan gate off once and set CHB_AUTO_BUILD=tier0, then
+// approve nothing: every plan must reach a passing proof without a person, and only the merges are yours.
 // It proves the plumbing (rig's readiness and approvals, one writer per file, parallel sessions, caps, merging), not a
 // model's code. The real run is the same sprint with the workflow and real sessions.
 import fs from 'node:fs'
@@ -23,13 +25,14 @@ const arg = k => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? proc
 const RIG = path.resolve(arg('rig') ?? process.env.CHB_PILOT_RIG ?? '')
 if (!fs.existsSync(path.join(RIG, 'scripts/sdlc.ts'))) { console.error('usage: node pilot/dry-run.mjs --rig <rig_v1 checkout> [--out <dir>]   (git clone https://github.com/cwijayasundara/rig_v1)'); process.exit(2) }
 const OUT = path.resolve(arg('out') ?? fs.mkdtempSync(path.join(os.tmpdir(), 'chb-pilot-')))
+const AUTO = process.argv.includes('--auto')
 const NAME = process.env.CHB_GIT_NAME ?? 'Chaminda Wijayasundara', EMAIL = process.env.CHB_GIT_EMAIL ?? 'cwijayasundara@gmail.com'
 
 fs.rmSync(OUT, { recursive: true, force: true })
 const DIR = path.join(OUT, 'repo'), ORIGIN = path.join(OUT, 'origin.git'), BIN = path.join(OUT, 'bin'), HOME = path.join(OUT, 'chb-home')
 for (const d of [DIR, BIN, HOME]) fs.mkdirSync(d, { recursive: true })
 fs.writeFileSync(path.join(BIN, 'claude'), `#!/bin/sh\nexec "${process.execPath}" "${path.join(HERE, 'scripted-claude.mjs')}" "$@"\n`, { mode: 0o755 })
-const ENV = { ...process.env, PATH: `${BIN}${path.delimiter}${process.env.PATH}`, CHB_HOME: HOME, GIT_AUTHOR_NAME: NAME, GIT_AUTHOR_EMAIL: EMAIL, GIT_COMMITTER_NAME: NAME, GIT_COMMITTER_EMAIL: EMAIL }
+const ENV = { ...process.env, PATH: `${BIN}${path.delimiter}${process.env.PATH}`, CHB_HOME: HOME, CHB_AUTO_BUILD: AUTO ? 'tier0' : 'off', GIT_AUTHOR_NAME: NAME, GIT_AUTHOR_EMAIL: EMAIL, GIT_COMMITTER_NAME: NAME, GIT_COMMITTER_EMAIL: EMAIL }
 delete ENV.NODE_TEST_CONTEXT
 const run = (cmd, args, { cwd = DIR, env = {}, ok = true } = {}) => {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', env: { ...ENV, ...env } })
@@ -78,10 +81,17 @@ say(`YOU (played by the pilot): ${sdlc(['approve', 'chart-1'], { human: true }).
 commit('approve chart-1')
 say(`YOU (played by the pilot): ${sdlc(['autonomy', 'set', '2', '--why', 'pilot'], { human: true }).stdout.trim().split('\n')[0]}`)
 commit('autonomy: rung 2 for the pilot')
+if (AUTO) {
+  const f = path.join(DIR, '.rig/sensors.json')
+  fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), gates: { plan: false } }, null, 2) + '\n')
+  sdlc(['sync']); commit('chore: plan gate off for tier-0 auto-builds')
+  say("YOU (played by the pilot): rig's plan gate off (gates.plan: false) and CHB_AUTO_BUILD=tier0; no plan will be approved")
+}
 git('push', '-q', '-u', 'origin', 'main')
 
 // ---------- the hours ----------
 const timeline = []
+const builtAuto = new Set() // changes the coordinator started a build for as tier 0
 const parallel = jobs => Promise.all(jobs.map(j => new Promise(resolve => {
   const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', CHB, 'dispatch', j.kind, j.arg, '--repo-dir', DIR, '--local', '--go', '--no-log'], { cwd: DIR, env: ENV })
   let o = ''
@@ -96,6 +106,7 @@ for (let hour = 1; hour <= 8; hour++) {
   const jobs = JSON.parse(fs.readFileSync(path.join(OUT, 'jobs.json'), 'utf8'))
   say(`\n── hour ${hour}: coordinate`)
   say(c.stdout.split('\n').filter(l => /^(coordinate|  (flight|start|wait))/.test(l)).join('\n'))
+  for (const m of c.stdout.matchAll(/^  start   build (\S+): tier 0/gm)) builtAuto.add(m[1])
   const results = await parallel(jobs)
   for (const r of results) say(`   session ${r.kind} ${r.slug}: ${r.code === 0 ? r.result : `FAILED: ${r.result}`}`)
   timeline.push({ hour, started: jobs.map(j => `${j.kind}:${j.slug}`), failed: results.filter(r => r.code !== 0).length })
@@ -103,7 +114,7 @@ for (let hour = 1; hour <= 8; hour++) {
   let acted = 0
   for (const b of branches()) {
     const slug = b.replace('origin/sdlc/', '')
-    if (has(b, `.rig/changes/${slug}/plan.md`) && !has(b, `.rig/changes/${slug}/approval.json`)) {
+    if (!AUTO && has(b, `.rig/changes/${slug}/plan.md`) && !has(b, `.rig/changes/${slug}/approval.json`)) {
       const wt = path.join(OUT, `approve-${slug}`)
       git('worktree', 'add', '-q', '-B', `sdlc/${slug}`, wt, b)
       const a = sdlc(['approve', slug], { human: true, cwd: wt })
@@ -131,6 +142,10 @@ const checks = [
   ['two sessions ran side by side in one hour (disjoint scopes)', widest >= 2, `widest hour: ${widest}`],
   ['no session failed', timeline.every(t => !t.failed), timeline.map(t => t.failed).join(',')],
   [`every commit is by ${EMAIL}`, authors.length === 1 && authors[0] === EMAIL, authors.join(', ')],
+  ...(AUTO ? [
+    ['no plan was approved: every build was tier 0', !git('log', '--all', '--format=', '--name-only').split('\n').some(f => /^\.rig\/changes\/[^/]+\/approval\.json$/.test(f)), 'an approval.json was committed'],
+    ['every build started as tier 0', builtAuto.size === Object.keys(SCOPES).length, [...builtAuto].join(', ')],
+  ] : []),
 ]
 say('\n── what the dry run proved')
 for (const [what, okay, detail] of checks) say(`  ${okay ? 'ok  ' : 'FAIL'} ${what}${okay ? '' : `: ${detail}`}`)

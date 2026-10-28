@@ -4,6 +4,8 @@
 //   the required checks are present and green (rig-check enforces rig's human-approval rule)
 //   change type in CHB_AUTOMERGE_TYPES (default chore,refactor) and at most CHB_AUTOMERGE_MAX_LINES (default 150)
 //   review.md verdict pass with no open critical/high finding
+//   a person approved the plan: the PR carries .rig/changes/<slug>/approval.json (a tier-0 auto-build has none, and a
+//   change no person approved is never also merged by no person)
 //   no file under a protected path (harness, CI, contracts, migrations, dependency manifests). A change's own records
 //   (.rig/changes/<slug>/**, approval.json included) are not protected here: rig-check already judges them.
 import { type Args, flag, opt, out, die } from './cli.ts'
@@ -41,6 +43,8 @@ export function mergeDecision(row: Row, proof: Proof | null, files: string[], ch
     if (proof.review.verdict !== 'pass') no.push(`review verdict is ${proof.review.verdict}`)
     if (proof.review.openHigh) no.push(`${proof.review.openHigh} open critical/high review finding(s)`)
   }
+  // The slug comes from the PR's branch, not from proof.json, which the agent writes.
+  if (!row.slug || !files.includes(`.rig/changes/${row.slug}/approval.json`)) no.push('no person approved its plan (no approval.json: a tier-0 auto-build); a person merges it')
   if (row.lines > p.maxLines) no.push(`${row.lines} changed lines > ${p.maxLines}`)
   const hot = files.filter(f => PROTECTED.some(r => r.test(f)))
   if (hot.length) no.push(`touches protected paths: ${hot.slice(0, 5).join(', ')}${hot.length > 5 ? ' …' : ''}`)

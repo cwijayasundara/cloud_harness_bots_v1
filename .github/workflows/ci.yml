@@ -69,3 +69,5 @@ jobs:
       - name: rig at its latest main
         run: git clone -q --depth 1 https://github.com/cwijayasundara/rig_v1 "$RUNNER_TEMP/rig_v1"
       - run: node pilot/dry-run.mjs --rig "$RUNNER_TEMP/rig_v1" --out "$RUNNER_TEMP/pilot"
+      - name: The same sprint as tier-0 auto-builds (no approvals)
+        run: node pilot/dry-run.mjs --rig "$RUNNER_TEMP/rig_v1" --out "$RUNNER_TEMP/pilot-auto" --auto
