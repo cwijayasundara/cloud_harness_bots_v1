@@ -33,6 +33,7 @@ jobs:
       - name: Install globally from GitHub, as the README says (pushes only; a fork's PR has no commit on this repo)
         if: github.event_name == 'push'
         run: |
+          npm uninstall -g cloud-harness-bots   # npm 10 cannot install a git package over an installed copy (ENOTEMPTY)
           npm install -g --install-links "github:${{ github.repository }}#${{ github.sha }}"
           chb version
       - name: Workflow templates parse

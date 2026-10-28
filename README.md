@@ -52,7 +52,7 @@ git switch -c chore/ub-gates && git add -A && git commit -m "chore: Uncle Bob ga
 git push -u origin chore/ub-gates     # open the PR; a code owner approves (sensors.json and .claude/ are protected)
 ```
 
-`--install-links` matters: without it, npm 11 links a global install of a git package to a temporary clone it then deletes, and `chb` is a dangling link. For agents that build overnight, follow [Step by step: your first overnight run](#step-by-step-your-first-overnight-run). Then see [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). To try it first without touching a real repo, see [Testing it by hand](#testing-it-by-hand). Later releases: the same `npm install -g --install-links …` again, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
+`--install-links` matters: without it, npm 11 links a global install of a git package to a temporary clone it then deletes, and `chb` is a dangling link. For agents that build overnight, follow [Step by step: your first overnight run](#step-by-step-your-first-overnight-run). Then see [ROLLOUT.md](ROLLOUT.md) and [bots/README.md](bots/README.md). To try it first without touching a real repo, see [Testing it by hand](#testing-it-by-hand). Later releases: `npm uninstall -g cloud-harness-bots` (npm 10 can't install over an installed copy), the same `npm install -g --install-links …` again, then `chb upgrade <repo>`, which refreshes only the vendored CLI.
 
 ## Step by step: your first overnight run
 

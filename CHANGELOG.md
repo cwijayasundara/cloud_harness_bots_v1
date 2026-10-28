@@ -3,7 +3,7 @@
 ## Unreleased
 
 **Fixes that stopped a first run:**
-- **Global install:** `npm install -g github:…` failed, because npm builds a global git install without its dev dependencies, so `tsc` was missing. The build is now `scripts/build.mjs`, which uses Node's own type stripping and needs no dependencies; `tsc` still type-checks. Install with `--install-links`, or npm 11 links the global install to a temporary clone it deletes. CI now installs every pushed commit this way.
+- **Global install:** `npm install -g github:…` failed, because npm builds a global git install without its dev dependencies, so `tsc` was missing. The build is now `scripts/build.mjs`, which uses Node's own type stripping and needs no dependencies; `tsc` still type-checks. Install with `--install-links`, or npm 11 links the global install to a temporary clone it deletes. To upgrade, `npm uninstall -g cloud-harness-bots` first, because npm 10 fails over an installed copy with `ENOTEMPTY`. CI now installs every pushed commit this way.
 - **Builds on Actions could never pass their proof.** The coordinator's session job had no crapper, dryer or mutator, so the gates skipped and `chb proof` reported them as not run. Build sessions now install the pinned tools (and Python 3.12). Rerun `chb install . --coordinate --force` to pick this up.
 - README: "Step by step: your first overnight run", with a check after each step and what each "wait" reason means.
 
