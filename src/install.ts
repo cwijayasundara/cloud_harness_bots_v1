@@ -9,7 +9,8 @@
 //   CODEOWNERS (if present)              the baseline and the vendored CLI
 //   .github/workflows/ub-gates.yml       only with --ci: the gates as a PR check, tools installed in CI
 //   .github/workflows/chb-ledger.yml     only with --ledger: the hourly PR ledger, no Grok Bot needed
-//   .github/workflows/chb-coordinate.yml only with --coordinate: the hourly coordinator, each session in its own job
+//   .github/workflows/chb-coordinate.yml only with --coordinate: the hourly coordinator, each session in its own job;
+//                                        --schedule day|night|always|"<cron>" sets when (also rewrites an installed one)
 // --ub-mode also fetches Uncle Bob's ub-mode SKILL.md into ~/.claude/skills/ub-mode (it ships without a licence,
 // so it is fetched from his repo, never copied into yours).
 import fs from 'node:fs'
@@ -96,6 +97,22 @@ export async function fetchUbMode(): Promise<string> {
   return dir
 }
 
+// When the coordinator runs (GitHub cron, UTC). day is the template's own; night is for agents that build while you sleep.
+export const SCHEDULES: Record<string, { cron: string; note: string }> = {
+  day: { cron: '23 7-21 * * 1-5', note: 'hourly on weekdays, 07:23–21:23 UTC' },
+  night: { cron: '23 21-23,0-6 * * *', note: 'hourly every night, 21:23–06:23 UTC' },
+  always: { cron: '23 * * * *', note: 'hourly, around the clock' },
+}
+
+// Pure: the coordinate workflow with its cron line set to a preset or a 5-field cron expression.
+export function withSchedule(yml: string, schedule: string): string {
+  const s = SCHEDULES[schedule] ?? { cron: schedule, note: 'custom schedule, UTC' }
+  if (!/^[\d*,/-]+( [\d*,/-]+){4}$/.test(s.cron)) throw new Error(`--schedule ${schedule}: use day, night, always or a 5-field cron like "23 22-23,0-5 * * *"`)
+  const line = /^(\s*- cron: )'[^']*'.*$/m
+  if (!line.test(yml)) throw new Error('chb-coordinate.yml has no "- cron:" line to set')
+  return yml.replace(line, `$1'${s.cron}' # ${s.note}; off-minute to avoid the top-of-hour queue`)
+}
+
 // The vendored CLI only: what `chb upgrade` refreshes, leaving sensors, skills, workflows and the baseline alone.
 export function vendor(target: string): string {
   fs.rmSync(path.join(target, '.rig/ub/src'), { recursive: true, force: true })
@@ -117,6 +134,12 @@ export function cmdInstall(args: Args): void {
   const sensorsFile = path.join(target, '.rig', 'sensors.json')
   if (!fs.existsSync(sensorsFile)) die(`${target} is not an initialised rig repo (no .rig/sensors.json): run /rig:init there first`)
   const force = flag(args, 'force')
+  const schedule = opt(args, 'schedule')
+  const coordinateFile = path.join(target, '.github/workflows/chb-coordinate.yml')
+  if (schedule) {
+    try { withSchedule(fs.readFileSync(path.join(PKG, 'templates/chb-coordinate.yml'), 'utf8'), schedule) } catch (e) { die((e as Error).message) }
+    if (!flag(args, 'coordinate') && !fs.existsSync(coordinateFile)) die('--schedule sets the coordinator\'s cron: add --coordinate, or install it first')
+  }
   const done: string[] = []
 
   done.push(vendor(target))
@@ -162,6 +185,10 @@ export function cmdInstall(args: Args): void {
   if (flag(args, 'ci')) workflow('ub-gates.yml', 'make "ub-gates" a required check; chb merge requires it')
   if (flag(args, 'ledger')) workflow('chb-ledger.yml', 'hourly PR ledger (labels + a "chb PR ledger" issue); set repo variable CHB_AUTOMERGE=true to let it auto-merge')
   if (flag(args, 'coordinate')) workflow('chb-coordinate.yml', 'hourly coordinator; add secrets CHB_GH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN, then set repo variable CHB_COORDINATE=on')
+  if (schedule) {
+    fs.writeFileSync(coordinateFile, withSchedule(fs.readFileSync(coordinateFile, 'utf8'), schedule))
+    done.push(`.github/workflows/chb-coordinate.yml: runs ${SCHEDULES[schedule]?.note ?? `on cron "${schedule}" (UTC)`}`)
+  }
 
   out([`chb install → ${target}`, ...done.map(d => `  - ${d}`), '', 'Next:',
     '  1. chb tools install            (once per machine, and on the Grok Bot computer)',

@@ -60,7 +60,8 @@ Setup
   chb doctor [--repo-dir <dir>]          is this machine and this repo ready? (exit 1 when not)
   chb version
   chb tools install [--pin crapper=<sha>,dryer=<sha>,mutator=<sha>] | chb tools status
-  chb install <rig repo> [--owner @you] [--ci] [--ledger] [--ub-mode] [--force]
+  chb install <rig repo> [--owner @you] [--ci] [--ledger] [--coordinate] [--schedule day|night|always|"<cron>"] [--ub-mode] [--force]
+                                         --coordinate: the hourly coordinator on GitHub Actions; --schedule: when it runs (UTC; default day)
   chb upgrade <rig repo>                 refresh the vendored CLI only (keeps sensors, skills, baseline)
 
 Exit codes: 0 pass, 1 blocking findings or a refused action, 2 a tool or setup failure.`

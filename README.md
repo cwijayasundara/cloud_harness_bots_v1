@@ -115,7 +115,7 @@ What it shows, against rig's real readiness, approvals and commit hooks:
 
 CI runs the pilot on every push against rig's latest main.
 
-**2. Run the team for real on GitHub Actions** (no Grok Bot needed). `chb install . --coordinate` adds `.github/workflows/chb-coordinate.yml`. Every weekday hour, one job runs `chb coordinate --go --emit`, and each pick then runs as its own job on its own runner, so four picks means four agents at once. To switch it on:
+**2. Run the team for real on GitHub Actions** (no Grok Bot needed). `chb install . --coordinate` adds `.github/workflows/chb-coordinate.yml`. Every hour it is scheduled to run, one job runs `chb coordinate --go --emit`, and each pick then runs as its own job on its own runner, so four picks means four agents at once. To switch it on:
 
 | Setting | What |
 | --- | --- |
@@ -124,6 +124,15 @@ CI runs the pilot on every push against rig's latest main.
 | Variable `CHB_COORDINATE` | `on` to start; delete it to stop |
 | Variables `CHB_WIP`, `CHB_SESSION_BUDGET_USD` | Changes in flight (default 4) and the budget per session in dollars (default 10) |
 | Variables `CHB_GIT_NAME`, `CHB_GIT_EMAIL` | The commit identity sessions use. The default is yours: Chaminda Wijayasundara, cwijayasundara@gmail.com |
+
+**When it runs** is set by `--schedule` (UTC, as GitHub's cron is). Rerunning `chb install . --schedule <when>` rewrites only the cron line of an installed workflow:
+
+| `--schedule` | Runs | For |
+| --- | --- | --- |
+| `day` (the default) | hourly on weekdays, 07:23–21:23 UTC | sessions while you can answer them |
+| `night` | hourly every night, 21:23–06:23 UTC | approve plans in the evening, wake up to PRs |
+| `always` | hourly, around the clock | |
+| `"<cron>"` | any 5-field cron, e.g. `"23 22-23,0-5 * * 1-5"` | |
 
 rig still decides what may start: nothing starts at rung 0, builds need rung 2, and every plan stops for your approval. The dispatch log (session counts, plans still being written) is kept in the Actions cache between runs. If the cache is evicted after a week of no runs, the counts start again from zero.
 
@@ -366,7 +375,7 @@ Work through the tiers in order: each costs more than the one before. Commands t
 
 5. **GitHub (free, scratch repo).** Open a few PRs, then `chb ledger --repo you/scratch` (add `--labels` once it looks right), `chb merge <pr> --repo you/scratch` without `--go`, and `chb report --days 7 --repo you/scratch`. These are the commands tested here only with a fake `gh`.
 6. **Real sessions (costs model tokens).** `chb dispatch plan "chore: something tiny" --repo-dir <scratch> --local --go`, then without `--local` for `claude --cloud`, then `chb coordinate --repo-dir <scratch>` and `--go`.
-7. **Actions (costs model tokens).** `chb install . --coordinate`, add the secrets and variables in [the table above](#your-team-of-agents-the-pilot-then-github-actions), and run the workflows from the Actions tab.
+7. **Actions (costs model tokens).** `chb install . --coordinate --schedule night`, add the secrets and variables in [the table above](#your-team-of-agents-the-pilot-then-github-actions), and run the workflows from the Actions tab.
 
 ## Credits and licences
 

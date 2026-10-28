@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync, execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { mergeSensors } from '../src/install.ts'
+import { mergeSensors, withSchedule, SCHEDULES } from '../src/install.ts'
 import { nodeOk } from '../src/doctor.ts'
 
 const CHB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/chb.ts')
@@ -16,6 +16,36 @@ test('--force refreshes ub sensors but keeps the repo\'s blocks, cadence and tim
   const s = JSON.parse(mergeSensors(week4, true).text).sensors.find((x: { id: string }) => x.id === 'ub-crap')
   assert.equal(s.blocks, true); assert.equal(s.cadence, 'turn'); assert.equal(s.timeoutMs, 5)
   assert.match(s.cmd, /gate crap/); assert.notEqual(s.guide, 'old')
+})
+
+test('--schedule: presets and a cron set the coordinator\'s cron line; anything else is refused', () => {
+  const yml = fs.readFileSync(path.resolve(path.dirname(CHB), '../templates/chb-coordinate.yml'), 'utf8')
+  assert.ok(yml.includes(`- cron: '${SCHEDULES.day!.cron}'`), 'the template runs on the day preset')
+  const night = withSchedule(yml, 'night')
+  assert.match(night, /- cron: '23 21-23,0-6 \* \* \*' # hourly every night/)
+  assert.equal(night.split('\n').length, yml.split('\n').length)
+  assert.match(withSchedule(yml, '5 22-23,0-5 * * 1-5'), /- cron: '5 22-23,0-5 \* \* 1-5' # custom schedule, UTC/)
+  for (const bad of ['nightly', '23 * * *', "23 * * * *' ; rm -rf"]) assert.throws(() => withSchedule(yml, bad), /--schedule/)
+})
+
+test('install --coordinate --schedule night, then --schedule always rewrites only the cron; --schedule alone needs the workflow', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chb-schedule-'))
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir })
+  fs.mkdirSync(path.join(dir, '.rig'))
+  fs.writeFileSync(path.join(dir, '.rig/sensors.json'), JSON.stringify({ sensors: [] }))
+  let r = chb(['install', dir, '--schedule', 'night'], dir)
+  assert.equal(r.status, 1); assert.match(r.stderr, /add --coordinate/)
+  r = chb(['install', dir, '--coordinate', '--schedule', 'bogus'], dir)
+  assert.equal(r.status, 1); assert.ok(!fs.existsSync(path.join(dir, '.rig/ub')), 'a bad schedule changes nothing')
+  const wf = path.join(dir, '.github/workflows/chb-coordinate.yml')
+  r = chb(['install', dir, '--coordinate', '--schedule', 'night'], dir)
+  assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /hourly every night/)
+  assert.match(fs.readFileSync(wf, 'utf8'), /- cron: '23 21-23,0-6 \* \* \*'/)
+  fs.appendFileSync(wf, '# my edit\n')
+  r = chb(['install', dir, '--schedule', 'always'], dir)
+  assert.equal(r.status, 0, r.stderr)
+  const t = fs.readFileSync(wf, 'utf8')
+  assert.match(t, /- cron: '23 \* \* \* \*'/); assert.match(t, /# my edit/)
 })
 
 test('doctor: node version floor', () => {

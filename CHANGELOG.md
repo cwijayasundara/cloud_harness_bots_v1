@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**`chb install --schedule day|night|always|"<cron>"`** sets when the coordinator runs. `night` (hourly, 21:23–06:23 UTC) is for agents that build while you sleep. Rerunning it on an installed `chb-coordinate.yml` rewrites only the cron line. `chb help` now lists `--coordinate` too.
+
+**Pilot fixes:**
+- rig (since `aa1e72f`) commits approvals itself, so the pilot now commits only what is left.
+- Its scripted sessions no longer set upstream tracking. Two of them side by side in one repo raced on `.git/config`'s lock and failed now and then. Real sessions never share a clone.
+
 **Fix:** `templates/ub-gates.yml` and CI set `UB_TOOLS_DIR` in a step, not the job's `env`. GitHub rejects the `runner` context there, so the whole workflow failed to start. Repos that ran `chb install --ci` on 0.6.0 or earlier should rerun it, or apply the same change to `.github/workflows/ub-gates.yml`.
 
 ## 0.6.0 · 2026-10-27
