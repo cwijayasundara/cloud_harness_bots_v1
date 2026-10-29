@@ -24,7 +24,7 @@ Shell shorthands used below:
 
 ```bash
 RIG=~/Documents/learning_101/rig_v1
-SBX=~/code/chb-factory-sandbox
+SBX=~/Documents/learning_102/chb-factory-sandbox
 REPO=cwijayasundara/chb-factory-sandbox
 SDLC="node --disable-warning=ExperimentalWarning .rig/bin/sdlc.ts"
 ```
