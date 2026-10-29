@@ -16,7 +16,7 @@ These terms come from the skill and are used only in this sense here.
 
 | Term | Meaning | In chb |
 | --- | --- | --- |
-| **Task** | A kind of work, defined once, run many times | `plan`, `build`, `ledger` (and later `review`) |
+| **Task** | A kind of work, defined once, run many times | `plan`, `build`, `ai-review`, `ledger` (and later `rework`) |
 | **Trigger** | The event that starts a run | the coordinator's hourly clock, a manual `workflow_dispatch`, a `pull_request` event |
 | **Run** | One execution of a task on one runner, start to finish. It never waits for a person: it ends, and the person's later change triggers a new run | one `session` job in `chb-coordinate`, one `ub-gates` / `rig-check` workflow run |
 | **Runner** | The throwaway machine a run executes on. Nothing survives it | a GitHub-hosted `ubuntu-latest` job |
@@ -26,7 +26,7 @@ These terms come from the skill and are used only in this sense here.
 | **Orchestrator** | Receives triggers, starts runs, records what is queued, in flight, finished | GitHub Actions + `chb coordinate` (in-flight state: `origin/sdlc/*` branches; run history: the dispatch log in the Actions cache) |
 | **Observability platform** | Where a person sees what happened inside each run | a deliberate none: Actions run pages and their step summaries (`CHB-RESULT` lines) |
 
-**Brakes** (Matt's three): automated checks (rig sensors and hooks, `rig-check`, `ub-gates`: CRAP, duplication, mutation), automated review (today inside the build run, see `build` below), and human review (CK approves every plan and merges every PR).
+**Brakes** (Matt's three): automated checks (rig sensors and hooks, `rig-check`, `ub-gates`: CRAP, duplication, mutation), automated review (twice: inside the build run by `/rig:pr`, and cold in its own run by `ai-review`), and human review (CK approves every plan and merges every PR).
 
 ## Services
 
@@ -53,9 +53,19 @@ These terms come from the skill and are used only in this sense here.
 
 1. **Trigger:** the clock finds a change whose `approval.json` hashes match its spec, plan and requirements, with no passing proof, at rung ≥ 2.
 2. **Does:** `/rig:build`, `/rig:test`, `/rig:pr` (which includes rig's clean-context review and security review, and fixes their findings), then the gates and `chb proof`. Opens the PR on GitHub and commits `proof.json`.
-3. **Triggers next:** the PR triggers `rig-check` and `ub-gates` (automated checks); the hourly ledger labels it.
+3. **Triggers next:** the PR triggers `rig-check` (sensors, and the `ai-review` run below) and `ub-gates` (automated checks); the hourly ledger labels it.
 4. **Person re-enters:** CK reads the PR and merges it. If a run ends `status=needs-human`, or the change has used both build runs, CK reads the `CHB-RESULT` line and `proof.json` reasons, fixes the brief or code, and starts one more by hand: `chb dispatch build <slug> --repo-dir . --go --force`.
 5. **Stops duplicate work:** at most 2 build runs per change (`CHB_MAX_BUILDS`); no second build while one dispatched after the branch's last commit may still be running; 2 fix rounds inside a run.
+
+### `ai-review` (the cold automated review)
+
+A job in rig's `rig-check.yml`, found during setup: it was already there.
+
+1. **Trigger:** a PR from this repo is opened or gets a new commit (`pull_request`).
+2. **Does:** two `claude -p --model opus` runs with read-only tools (`Read,Grep,Glob`) on the diff only: a code review briefed from the base branch's `REVIEW.md`, and a security review. Each writes a verdict; the job fails on any critical or high item under `## Findings`.
+3. **Triggers next:** nothing. A fail leaves the PR red for CK (and, later, for a `rework` run).
+4. **Person re-enters:** at merge: CK reads the findings in the job log.
+5. **Stops duplicate work:** `concurrency: rig-check-<PR>` with cancel-in-progress: one review per head commit, never a queue of reviews of stale code.
 
 ### `ledger`
 
@@ -82,7 +92,7 @@ Start slow: `CHB_WIP=2` (the sprint can't use more), `CHB_SESSION_BUDGET_USD=5`,
 The run counts as working when all of these hold, checked from GitHub alone:
 
 - [ ] A hand-started `chb-coordinate` run plans `stock-model` and pushes `sdlc/stock-model` with a spec and plan.
-- [ ] After CK's approval, a build run opens a PR whose `rig-check` and `ub-gates` are green and whose `proof.json` passes.
+- [ ] After CK's approval, a build run opens a PR whose `rig-check` (including `ai-review`) and `ub-gates` are green and whose `proof.json` passes.
 - [ ] `stock-endpoint` and `cart-stock-limit` wait for `stock-model` to merge, then plan and build side by side.
 - [ ] Every run page shows its `CHB-RESULT` line; every waiting intent shows its reason in the `choose` summary.
 - [ ] The ledger labels each PR correctly.
@@ -101,17 +111,17 @@ Seeded with known work and known dependencies, so the run tests the factory and 
 
 If `/rig:init` or `chart check` shows the fixture sprint doesn't fit the real shop app (a scope that misses a file the intent must write), the fix goes in the sandbox's intents before the run starts, not in the factory. The setup follows README's *Step by step: your first overnight run*, steps 1–7. Each step that only CK can perform (the two secrets, `/rig:autonomy`, `/rig:approve` on the chart and each plan, merges) is marked as theirs.
 
-## Next task: a cold `review` run (after the first run works)
+## Next task: `rework` (after the first run works)
 
-Today the automated review runs inside the build run, and that run triages and fixes its own reviewer's findings. Matt's design keeps review as a separate run that reads the diff cold and can fail the PR. `chb dispatch review <slug>` already exists (a reviewer that didn't write the change, writing a verdict) but nothing starts it. Sketch, to be designed properly once the first run has worked:
+The cold review already exists (`ai-review` above), but a failed one only leaves the PR red. Matt's chain closes the loop with a rework run. Sketch, to be designed properly once the first run has worked:
 
-1. **Trigger:** a build PR has a passing proof and no cold review at its head commit.
-2. **Does:** reads intent, spec and diff against the base; runs the tests and `chb tare all`; writes a verdict with findings. Edits no code.
-3. **Triggers next:** on a fail, a `rework` run (fix only the named findings), capped at 2 rounds, then `chb:blocked`. On a pass, nothing: the PR waits for CK.
+1. **Trigger:** `ai-review` fails on a PR from an `sdlc/*` branch.
+2. **Does:** fixes only the critical and high findings `ai-review` named, reruns `/rig:test` and the proof, and pushes. Edits nothing the plan doesn't list.
+3. **Triggers next:** the push triggers `ai-review` again. After 2 rework rounds on a change, it ends with the PR labelled `chb:blocked`.
 4. **Person re-enters:** at merge, or when the cap is reached.
-5. **Stops duplicate work:** a review is tied to the head commit it judged; a new commit makes it stale.
+5. **Stops duplicate work:** one rework per failed review of a head commit; the round count is kept in the dispatch log, like build sessions.
 
-Open points for that design: where the verdict lives so it doesn't overwrite `/rig:pr`'s `review.md`; whether a cold fail blocks `chb merge`; whether the coordinator emits `review` jobs or a `pull_request` workflow starts them.
+Open points for that design: how the rework run gets `ai-review`'s findings (today they live only in the job log, not in a file or a PR comment); whether the coordinator emits `rework` jobs or a `workflow_run` trigger starts them. chb's own `chb dispatch review` (a reviewer that writes `review.md`) overlaps `ai-review`; keep one.
 
 ## Not yet
 
@@ -119,7 +129,6 @@ Each is one of Matt's example tasks, added one at a time only after the previous
 
 | Task | Problem it solves | chb starting point |
 | --- | --- | --- |
-| rework | failed cold reviews sit unfixed | `MAX_ROUNDS`, `chb:blocked` |
 | explore / triage | GitHub issues pile up untriaged | a bridge from issue labels to `/rig:start` |
 | fix | the factory's own runs fail | the `choose` summary, `CHB-RESULT` lines |
 | architecture | the codebase drifts | `chb dispatch audit`, `/rig:arch` |
