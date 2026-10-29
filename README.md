@@ -35,6 +35,7 @@ Zero runtime dependencies. Node 22.18+ runs it as TypeScript from a checkout, li
 | `pilot/` | The dry run: rig's sample sprint through the whole chain, scripted, for $0 |
 | `test/` | `node --test` suites; see [Development](#development) |
 | `ROLLOUT.md` | 30 days, four weekly gates you can check |
+| `FACTORY.md` | The factory design in Matt Pocock's software-factory language, and the supervised first run |
 | `CHANGELOG.md` | What changed in each release (currently 0.6.0) |
 
 ## Quick start
